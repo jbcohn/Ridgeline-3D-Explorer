@@ -1,0 +1,2253 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>3D Ridgeline Landscape Explorer</title>
+    
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            -webkit-tap-highlight-color: transparent;
+            user-select: none;
+        }
+        html, body {
+            font-family: 'Outfit', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: #020617;
+            color: #f8fafc;
+            overflow: hidden;
+            height: 100%;
+            width: 100%;
+        }
+        #app-container {
+            display: flex;
+            flex-direction: row;
+            height: 100%;
+            width: 100%;
+            position: relative;
+        }
+        #canvas-container {
+            flex: 1;
+            position: relative;
+            background-color: #0a0a0c;
+            overflow: hidden;
+            height: 100%;
+            width: 100%;
+        }
+        #canvas-container canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+
+        /* Floating Corner Controls */
+        #floating-controls {
+            position: absolute;
+            top: 16px;
+            right: 16px;
+            display: flex;
+            gap: 8px;
+            z-index: 15;
+            pointer-events: auto;
+        }
+        .floating-btn {
+            width: 40px;
+            height: 40px;
+            border-radius: 10px;
+            background: rgba(15, 23, 42, 0.85);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(56, 189, 248, 0.3);
+            color: #38bdf8;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+            font-size: 16px;
+        }
+        .floating-btn:hover {
+            background: rgba(30, 41, 59, 0.95);
+            border-color: #38bdf8;
+            transform: scale(1.06);
+        }
+
+        /* Instructions Banner */
+        #instructions-bar {
+            position: absolute;
+            bottom: 16px;
+            left: 16px;
+            z-index: 10;
+            background: rgba(15, 23, 42, 0.85);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(56, 189, 248, 0.2);
+            border-radius: 10px;
+            padding: 10px 16px;
+            font-size: 12px;
+            color: #94a3b8;
+            line-height: 1.5;
+            max-width: calc(100% - 32px);
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+            pointer-events: none;
+        }
+        #instructions-bar span {
+            color: #38bdf8;
+            font-weight: 600;
+        }
+
+        /* Control Panel (Sidebar on desktop, drawer/bottom-sheet on mobile) */
+        #control-panel {
+            width: 360px;
+            background-color: rgba(15, 23, 42, 0.95);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border-left: 1px solid rgba(56, 189, 248, 0.15);
+            display: flex;
+            flex-direction: column;
+            height: 100dvh;
+            box-shadow: -10px 0 35px rgba(0, 0, 0, 0.5);
+            z-index: 20;
+            position: relative;
+            transition: transform 0.35s cubic-bezier(0.16, 1, 0.3, 1), width 0.35s cubic-bezier(0.16, 1, 0.3, 1), height 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        /* Drag Handle / Splitter */
+        #panel-drag-handle {
+            position: absolute;
+            left: -14px;
+            top: 0;
+            bottom: 0;
+            width: 28px;
+            cursor: ew-resize;
+            z-index: 25;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background-color: transparent;
+            transition: background-color 0.2s, border-left 0.2s, box-shadow 0.2s;
+        }
+        #panel-drag-handle:hover, #panel-drag-handle.active {
+            background-color: rgba(56, 189, 248, 0.12);
+        }
+        .drag-pill {
+            width: 4px;
+            height: 48px;
+            background-color: rgba(56, 189, 248, 0.5);
+            border-radius: 2px;
+            transition: all 0.2s;
+        }
+        #panel-drag-handle:hover .drag-pill, #panel-drag-handle.active .drag-pill {
+            background-color: #38bdf8;
+            height: 64px;
+            width: 5px;
+        }
+
+        /* Header Banner */
+        #panel-header {
+            background-color: rgba(30, 41, 59, 0.6);
+            padding: 14px 18px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        #panel-header h1 {
+            font-size: 1.05rem;
+            font-weight: 700;
+            color: #38bdf8;
+            letter-spacing: 0.05em;
+        }
+        #btn-close-panel {
+            background: transparent;
+            border: none;
+            color: #94a3b8;
+            font-size: 18px;
+            cursor: pointer;
+            padding: 4px 8px;
+            border-radius: 6px;
+            transition: all 0.2s;
+        }
+        #btn-close-panel:hover {
+            color: #f8fafc;
+            background: rgba(255, 255, 255, 0.1);
+        }
+
+        /* Scrolling Sidebar Content */
+        #panel-scroll {
+            flex: 1;
+            overflow-y: auto;
+            padding: 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+            scrollbar-width: thin;
+            scrollbar-color: #475569 #0f172a;
+        }
+        #panel-scroll::-webkit-scrollbar {
+            width: 6px;
+        }
+        #panel-scroll::-webkit-scrollbar-thumb {
+            background: #475569;
+            border-radius: 3px;
+        }
+
+        /* Sections */
+        .control-section {
+            background: rgba(30, 41, 59, 0.4);
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            border-radius: 12px;
+            padding: 14px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+        .section-title {
+            font-size: 0.75rem;
+            font-weight: 700;
+            color: #94a3b8;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            margin-bottom: 2px;
+        }
+        .ui-group {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+        .ui-label {
+            font-size: 0.8rem;
+            font-weight: 600;
+            color: #e2e8f0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .ui-value {
+            color: #38bdf8;
+            font-family: monospace;
+            font-weight: 600;
+        }
+        select, button, input[type="range"] {
+            font-family: inherit;
+        }
+        select {
+            width: 100%;
+            background-color: #090d16;
+            border: 1px solid #334155;
+            border-radius: 8px;
+            color: #f8fafc;
+            font-size: 0.82rem;
+            font-weight: 500;
+            padding: 8px 12px;
+            outline: none;
+            cursor: pointer;
+            transition: all 0.2s;
+            -webkit-appearance: none;
+            appearance: none;
+            background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
+            background-repeat: no-repeat;
+            background-position: right 10px center;
+            background-size: 16px;
+            padding-right: 32px;
+        }
+        select:focus, select:hover {
+            border-color: #38bdf8;
+            background-color: #0f172a;
+        }
+        button {
+            background-color: #1e293b;
+            color: #f8fafc;
+            border: 1px solid #334155;
+            border-radius: 8px;
+            padding: 8px 12px;
+            font-size: 0.82rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            text-align: center;
+        }
+        button:hover {
+            background-color: #334155;
+            border-color: #38bdf8;
+        }
+        input[type="range"] {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 100%;
+            height: 6px;
+            border-radius: 3px;
+            background: #1e293b;
+            outline: none;
+        }
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: #38bdf8;
+            cursor: pointer;
+            box-shadow: 0 0 10px rgba(56, 189, 248, 0.5);
+            transition: transform 0.1s;
+        }
+        input[type="range"]::-webkit-slider-thumb:hover {
+            transform: scale(1.2);
+        }
+        .btn-primary {
+            background: linear-gradient(135deg, #0284c7, #0369a1);
+            color: #ffffff;
+            border: none;
+            font-weight: 700;
+            padding: 12px;
+            border-radius: 8px;
+            font-size: 0.88rem;
+            letter-spacing: 0.03em;
+            cursor: pointer;
+            box-shadow: 0 4px 14px rgba(2, 132, 199, 0.35);
+            transition: all 0.2s;
+        }
+        .btn-primary:hover {
+            background: linear-gradient(135deg, #0369a1, #075985);
+            box-shadow: 0 6px 20px rgba(2, 132, 199, 0.5);
+            transform: translateY(-1px);
+        }
+
+        /* ==========================================================================
+           Responsive Mobile & Tablet Styling (Drawer Sidebar & Bottom Sheet)
+           ========================================================================== */
+        @media (max-width: 1024px) {
+            #control-panel {
+                position: fixed;
+                top: 0;
+                bottom: 0;
+                right: 0;
+                width: 340px;
+                max-width: 85%;
+                height: 100%;
+                transform: translateX(calc(100% - 14px));
+            }
+            #control-panel.open {
+                transform: translateX(0);
+            }
+            #control-panel:not(.open) #panel-drag-handle {
+                border-left: 2px solid rgba(56, 189, 248, 0.6);
+                background-color: rgba(15, 23, 42, 0.85);
+                box-shadow: -4px 0 15px rgba(56, 189, 248, 0.25);
+            }
+        }
+
+        @media (max-width: 600px) and (max-aspect-ratio: 13/15) {
+            #control-panel {
+                left: 0;
+                right: 0;
+                bottom: 0;
+                top: auto;
+                width: 100%;
+                max-width: 100%;
+                height: 55%;
+                border-top: 1px solid rgba(56, 189, 248, 0.2);
+                border-left: none;
+                border-radius: 20px 20px 0 0;
+                transform: translateY(calc(100% - 14px));
+            }
+            #control-panel.open {
+                transform: translateY(0);
+            }
+            #panel-drag-handle {
+                left: 0;
+                right: 0;
+                top: -14px;
+                bottom: auto;
+                width: 100%;
+                height: 28px;
+                cursor: ns-resize;
+            }
+            .drag-pill {
+                width: 48px;
+                height: 4px;
+            }
+            #panel-drag-handle:hover .drag-pill, #panel-drag-handle.active .drag-pill {
+                width: 68px;
+                height: 5px;
+            }
+            #control-panel:not(.open) #panel-drag-handle {
+                border-top: 2px solid rgba(56, 189, 248, 0.6);
+                border-left: none;
+                box-shadow: 0 -4px 15px rgba(56, 189, 248, 0.25);
+            }
+            #instructions-bar {
+                bottom: 24px;
+                font-size: 11px;
+                padding: 8px 12px;
+            }
+        }
+    </style>
+    <!-- Three.js & OrbitControls & Delaunator -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/delaunator@5.0.0/delaunator.min.js"></script>
+    <!-- Embedded DEM Data -->
+    <script src="dem_data.js"></script>
+</head>
+<body>
+    <div id="app-container">
+        <!-- 3D Canvas Viewport -->
+        <div id="canvas-container">
+            <!-- Floating Quick Action Buttons -->
+            <div id="floating-controls">
+                <button id="btn-toggle-menu" class="floating-btn" title="Toggle Controls Menu">
+                    <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+                        <path d="M3 18h18v-2H3v2zm0-5h18v-2H3v2zm0-7v2h18V6H3z"/>
+                    </svg>
+                </button>
+                <button id="btn-floating-center" class="floating-btn" title="Center Viewpoint">🎯</button>
+                <button id="btn-fullscreen" class="floating-btn" title="Toggle Fullscreen">
+                    <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
+                        <path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/>
+                    </svg>
+                </button>
+            </div>
+
+            <!-- Floating Instructions Banner -->
+            <div class="instructions" id="instructions-bar">
+                ✈️ <span>Flight Mode</span>: <span>W / Up Arrow</span> = Fly Forward | <span>Left / Right Arrows</span> = Turn View Direction | <span>A / D</span> = Strafe | <span>E / Q</span> = Climb/Descend
+            </div>
+        </div>
+
+        <!-- Interactive Collapsible Control Panel (Sidebar on desktop / bottom-sheet on mobile) -->
+        <div id="control-panel" class="open">
+            <div id="panel-drag-handle" class="drag-handle" title="Drag to resize / click to toggle">
+                <div class="drag-pill"></div>
+            </div>
+
+            <header id="panel-header">
+                <h1>RIDGELINE 3D</h1>
+                <button id="btn-close-panel" title="Close Panel">✕</button>
+            </header>
+
+            <div id="panel-scroll">
+                <!-- Section 1: Terrain & Elevation -->
+                <section class="control-section">
+                    <h3 class="section-title">Terrain & Elevation</h3>
+
+                    <div class="ui-group">
+                        <div class="ui-label">Target Region</div>
+                        <select id="region-select"></select>
+                    </div>
+
+                    <div class="ui-group">
+                        <div class="ui-label">Vertical Exaggeration <span id="val-exaggeration" class="ui-value">2.5x</span></div>
+                        <input type="range" id="slider-exaggeration" min="1.0" max="5.0" step="0.1" value="2.5">
+                    </div>
+
+                    <div class="ui-group">
+                        <div class="ui-label">Number of Lines <span id="val-lines" class="ui-value">75</span></div>
+                        <input type="range" id="slider-lines" min="50" max="250" step="1" value="75">
+                    </div>
+
+                    <div class="ui-group">
+                        <div class="ui-label">Line Smoothing <span id="val-smooth" class="ui-value">3</span></div>
+                        <input type="range" id="slider-smooth" min="1" max="10" step="1" value="3">
+                    </div>
+                </section>
+
+                <!-- Section 2: Render Style & Palette -->
+                <section class="control-section">
+                    <h3 class="section-title">Render Style & Palette</h3>
+
+                    <div class="ui-group">
+                        <div class="ui-label">Render Mode</div>
+                        <select id="style-select">
+                            <option value="fe_gradual" selected>Gradual Adaptive Mesh (Dense on Peaks)</option>
+                            <option value="fe_wireframe">Uniform Wireframe Grid</option>
+                            <option value="ridgeline">Stacked Ridgelines (Joy Division)</option>
+                        </select>
+                    </div>
+
+                    <div class="ui-group" style="padding: 2px 0;">
+                        <label for="check-shaded" class="ui-label" style="margin: 0; cursor: pointer; display: flex; align-items: center; justify-content: space-between;">
+                            <span>Shaded 3D Surface</span>
+                            <input type="checkbox" id="check-shaded" style="width: 18px; height: 18px; cursor: pointer; accent-color: #38bdf8;">
+                        </label>
+                    </div>
+
+                    <div id="shading-style-group" class="ui-group" style="display: none; border-left: 3px solid #38bdf8; padding-left: 8px; margin-left: 2px;">
+                        <div class="ui-label">Surface Shading Style</div>
+                        <select id="shading-style-select">
+                            <option value="hsl_relief" selected>True HSL Lightness (Clean 3D Relief, No Tint)</option>
+                            <option value="unlit">Pure Elevation Map (Unlit / 100% Vibrant)</option>
+                            <option value="smooth">Smooth Topography (Soft 3D Relief)</option>
+                            <option value="faceted">Faceted 3D (Classic FEA Lighting)</option>
+                        </select>
+                    </div>
+
+                    <div class="ui-group">
+                        <div class="ui-label">Color Theme</div>
+                        <select id="color-select">
+                            <option value="white">Classic White</option>
+                            <option value="cyan">Electric Cyan</option>
+                            <option value="gold">Sunset Gold</option>
+                            <option value="pink">Neon Pink</option>
+                            <option value="height">Elevation Heatmap</option>
+                        </select>
+                    </div>
+
+                    <div id="heatmap-controls-group" class="ui-group" style="display: none; border-left: 3px solid #38bdf8; padding-left: 8px; margin-left: 2px;">
+                        <div class="ui-label">Heatmap Palette</div>
+                        <select id="heatmap-palette-select">
+                            <option value="turbo" selected>Turbo / Rainbow (Blue → Green → Red)</option>
+                            <option value="viridis">Viridis (Deep Purple → Teal → Yellow)</option>
+                            <option value="magma">Magma (Dark Violet → Coral → Yellow)</option>
+                            <option value="terrain">Alpine Terrain (Deep Teal → Forest → White)</option>
+                            <option value="sunset">Sunset Glow (Navy → Crimson → Gold)</option>
+                            <option value="custom">Custom Hue Range</option>
+                        </select>
+                        <div class="ui-label" style="margin-top: 6px;">Elevation Range (<span id="val-elev-range">0% - 100%</span>)</div>
+                        <div style="display: flex; gap: 8px; align-items: center;">
+                            <input type="range" id="slider-elev-min" min="0" max="95" step="1" value="0" style="flex: 1;" title="Min Elevation Threshold">
+                            <input type="range" id="slider-elev-max" min="5" max="100" step="1" value="100" style="flex: 1;" title="Max Elevation Threshold">
+                        </div>
+                        <div id="custom-hue-controls" style="display: none; margin-top: 6px;">
+                            <div class="ui-label">Low Elevation Hue <span id="val-hue-start" class="ui-value">0.65</span></div>
+                            <input type="range" id="slider-hue-start" min="0.0" max="1.0" step="0.02" value="0.65">
+                            <div class="ui-label" style="margin-top: 4px;">High Elevation Hue <span id="val-hue-end" class="ui-value">0.00</span></div>
+                            <input type="range" id="slider-hue-end" min="0.0" max="1.0" step="0.02" value="0.00">
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Section 3: Navigation & Flight -->
+                <section class="control-section">
+                    <h3 class="section-title">Navigation & Flight</h3>
+
+                    <div class="ui-group">
+                        <div class="ui-label">Navigation Style</div>
+                        <select id="nav-mode-select">
+                            <option value="flight" selected>✈️ Flight Mode (WASD / Fly through)</option>
+                            <option value="orbit">🍎 Classic Orbit (Turntable Orbit / Pan)</option>
+                        </select>
+                    </div>
+
+                    <div class="ui-group">
+                        <div class="ui-label">Speed <span id="val-speed" class="ui-value">80</span></div>
+                        <input type="range" id="slider-speed" min="20" max="300" step="10" value="80">
+                    </div>
+
+                    <div id="flight-controls-group" class="ui-group">
+                        <div class="ui-label">Flight Steering Controls</div>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 4px;">
+                            <div></div>
+                            <button id="btn-fly-fwd" style="padding: 7px; font-weight: bold; background: #0284c7;">🚀 Forward</button>
+                            <div></div>
+                            <button id="btn-fly-left" style="padding: 7px;">◄ Left</button>
+                            <button id="btn-fly-back" style="padding: 7px;">Back ⬇</button>
+                            <button id="btn-fly-right" style="padding: 7px;">Right ►</button>
+                            <button id="btn-fly-up" style="padding: 7px;">▲ Climb</button>
+                            <button id="btn-center" style="padding: 7px;">🎯 Center</button>
+                            <button id="btn-fly-down" style="padding: 7px;">▼ Descend</button>
+                        </div>
+                    </div>
+
+                    <div id="orbit-controls-group" class="ui-group" style="display: none;">
+                        <div class="ui-label">Trackpad Drag Mode</div>
+                        <button id="btn-drag-mode">Mode: ROTATE (Click to Switch)</button>
+                    </div>
+
+                    <div class="ui-group">
+                        <div class="ui-label">Turntable Rotation</div>
+                        <button id="btn-rotate">Auto-Rotate: OFF</button>
+                    </div>
+                </section>
+
+                <!-- Section 4: Export Options -->
+                <section class="control-section">
+                    <h3 class="section-title">Snapshot Export</h3>
+
+                    <div class="ui-group">
+                        <div class="ui-label">Export Resolution</div>
+                        <select id="export-res-select">
+                            <option value="4000" selected>4000 × 4000 (Ultra High-Res Print / 4K)</option>
+                            <option value="5000">5000 × 5000 (Master Print / 5K)</option>
+                            <option value="3000">3000 × 3000 (High-Res 3K)</option>
+                            <option value="2048">2048 × 2048 (Standard 2K)</option>
+                            <option value="screen">Screen Match (Current Viewport)</option>
+                        </select>
+                    </div>
+
+                    <div class="ui-group">
+                        <div class="ui-label">Export Background</div>
+                        <select id="export-bg-select">
+                            <option value="transparent" selected>Transparent (Print Ready)</option>
+                            <option value="dark">Dark Background (Scene View)</option>
+                        </select>
+                    </div>
+
+                    <button class="btn-primary" id="btn-export">Export Snapshot (PNG)</button>
+                </section>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- 3D Scene Setup ---
+        const container = document.getElementById('canvas-container');
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x0a0a0c);
+
+        const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 2000);
+        camera.position.set(0, 60, 180);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true, alpha: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        container.appendChild(renderer.domElement);
+
+        const controls = new THREE.OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+        controls.dampingFactor = 0.05;
+        controls.maxPolarAngle = Math.PI / 2 + 0.1; // allow looking slightly below horizon
+        controls.screenSpacePanning = true; // smooth screen-space panning on trackpads
+
+        // Group to hold all 3D ridgeline meshes
+        const ridgelineGroup = new THREE.Group();
+        scene.add(ridgelineGroup);
+
+        // --- State Management ---
+        let currentRegion = 'shasta_closeup';
+        let autoRotate = false;
+
+        // Add Ambient & Directional Lights for FE 3D Shaded Surfaces
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+        scene.add(ambientLight);
+        const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+        dirLight.position.set(100, 200, 100);
+        scene.add(dirLight);
+
+        // UI Element References
+        const regionSelect = document.getElementById('region-select');
+        const styleSelect = document.getElementById('style-select');
+        const checkShaded = document.getElementById('check-shaded');
+        const shadingStyleGroup = document.getElementById('shading-style-group');
+        const shadingStyleSelect = document.getElementById('shading-style-select');
+        const sliderExaggeration = document.getElementById('slider-exaggeration');
+        const valExaggeration = document.getElementById('val-exaggeration');
+        const sliderLines = document.getElementById('slider-lines');
+        const valLines = document.getElementById('val-lines');
+        const sliderSmooth = document.getElementById('slider-smooth');
+        const valSmooth = document.getElementById('val-smooth');
+        const colorSelect = document.getElementById('color-select');
+        const heatmapControlsGroup = document.getElementById('heatmap-controls-group');
+        const heatmapPaletteSelect = document.getElementById('heatmap-palette-select');
+        const sliderElevMin = document.getElementById('slider-elev-min');
+        const sliderElevMax = document.getElementById('slider-elev-max');
+        const valElevRange = document.getElementById('val-elev-range');
+        const customHueControls = document.getElementById('custom-hue-controls');
+        const sliderHueStart = document.getElementById('slider-hue-start');
+        const valHueStart = document.getElementById('val-hue-start');
+        const sliderHueEnd = document.getElementById('slider-hue-end');
+        const valHueEnd = document.getElementById('val-hue-end');
+        const btnRotate = document.getElementById('btn-rotate');
+        const exportResSelect = document.getElementById('export-res-select');
+        const exportBgSelect = document.getElementById('export-bg-select');
+        const btnExport = document.getElementById('btn-export');
+
+        // Populate Region Dropdown
+        for (const key in DEM_DATA) {
+            const opt = document.createElement('option');
+            opt.value = key;
+            opt.textContent = DEM_DATA[key].name;
+            if (key === currentRegion) opt.selected = true;
+            regionSelect.appendChild(opt);
+        }
+
+        // --- Smoothing Helper ---
+        function smoothArray(arr, windowSize) {
+            if (windowSize <= 1) return arr.slice();
+            const result = new Float32Array(arr.length);
+            const half = Math.floor(windowSize / 2);
+            for (let i = 0; i < arr.length; i++) {
+                let sum = 0;
+                let count = 0;
+                for (let j = Math.max(0, i - half); j <= Math.min(arr.length - 1, i + half); j++) {
+                    sum += arr[j];
+                    count++;
+                }
+                result[i] = sum / count;
+            }
+            return result;
+        }
+
+        // --- Fast O(N log N) Delaunay Triangulation Engine ---
+        class FastDelaunay {
+            constructor(coords) {
+                const n = coords.length >> 1;
+                if (n < 3) { this.triangles = []; return; }
+                this.coords = coords;
+                const maxTriangles = Math.max(2 * n - 5, 0);
+                this.triangles = new Int32Array(maxTriangles * 3);
+                this.halfedges = new Int32Array(maxTriangles * 3);
+                this.hashSize = Math.ceil(Math.sqrt(n));
+                this.hullPrev = new Int32Array(n);
+                this.hullNext = new Int32Array(n);
+                this.hullTri = new Int32Array(n);
+                this.hullHash = new Int32Array(this.hashSize).fill(-1);
+
+                const ids = new Uint32Array(n);
+                let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+                for (let i = 0; i < n; i++) {
+                    const x = coords[2 * i], y = coords[2 * i + 1];
+                    if (x < minX) minX = x;
+                    if (y < minY) minY = y;
+                    if (x > maxX) maxX = x;
+                    if (y > maxY) maxY = y;
+                    ids[i] = i;
+                }
+                const cx = (minX + maxX) / 2, cy = (minY + maxY) / 2;
+
+                let minDist = Infinity, i0 = 0, i1 = 0, i2 = 0;
+                for (let i = 0; i < n; i++) {
+                    const d = (coords[2 * i] - cx) ** 2 + (coords[2 * i + 1] - cy) ** 2;
+                    if (d < minDist) { i0 = i; minDist = d; }
+                }
+                const i0x = coords[2 * i0], i0y = coords[2 * i0 + 1];
+
+                minDist = Infinity;
+                for (let i = 0; i < n; i++) {
+                    if (i === i0) continue;
+                    const d = (coords[2 * i] - i0x) ** 2 + (coords[2 * i + 1] - i0y) ** 2;
+                    if (d < minDist && d > 0) { i1 = i; minDist = d; }
+                }
+                let i1x = coords[2 * i1], i1y = coords[2 * i1 + 1];
+
+                let minRadius = Infinity;
+                for (let i = 0; i < n; i++) {
+                    if (i === i0 || i === i1) continue;
+                    const r = fdCircumradius(i0x, i0y, i1x, i1y, coords[2 * i], coords[2 * i + 1]);
+                    if (r < minRadius) { i2 = i; minRadius = r; }
+                }
+                let i2x = coords[2 * i2], i2y = coords[2 * i2 + 1];
+
+                if (minRadius === Infinity) { this.triangles = []; return; }
+
+                if (fdOrient(i0x, i0y, i1x, i1y, i2x, i2y)) {
+                    const i = i1, ix = i1x, iy = i1y;
+                    i1 = i2; i1x = i2x; i1y = i2y;
+                    i2 = i; i2x = ix; i2y = iy;
+                }
+
+                const center = fdCircumcenter(i0x, i0y, i1x, i1y, i2x, i2y);
+                this.cx = center.x; this.cy = center.y;
+
+                const dists = new Float64Array(n);
+                for (let i = 0; i < n; i++) dists[i] = (coords[2 * i] - center.x) ** 2 + (coords[2 * i + 1] - center.y) ** 2;
+                fdQuicksort(ids, dists, 0, n - 1);
+
+                this.hullStart = i0;
+                this.hullNext[i0] = this.hullPrev[i2] = i1;
+                this.hullNext[i1] = this.hullPrev[i0] = i2;
+                this.hullNext[i2] = this.hullPrev[i1] = i0;
+
+                this.hullTri[i0] = 0; this.hullTri[i1] = 1; this.hullTri[i2] = 2;
+
+                this.hullHash[this._hashKey(i0x, i0y)] = i0;
+                this.hullHash[this._hashKey(i1x, i1y)] = i1;
+                this.hullHash[this._hashKey(i2x, i2y)] = i2;
+
+                this.trianglesLen = 0;
+                this._addTriangle(i0, i1, i2, -1, -1, -1);
+
+                let xp = 0, yp = 0;
+                for (let k = 0; k < ids.length; k++) {
+                    const i = ids[k];
+                    const x = coords[2 * i], y = coords[2 * i + 1];
+                    if (k > 0 && Math.abs(x - xp) <= 1e-8 && Math.abs(y - yp) <= 1e-8) continue;
+                    xp = x; yp = y;
+                    if (i === i0 || i === i1 || i === i2) continue;
+
+                    let start = 0;
+                    const key = this._hashKey(x, y);
+                    for (let j = 0; j < this.hashSize; j++) {
+                        start = this.hullHash[(key + j) % this.hashSize];
+                        if (start !== -1 && start !== this.hullNext[start]) break;
+                    }
+                    start = this.hullPrev[start];
+                    let e = start, q;
+                    while (true) {
+                        q = this.hullNext[e];
+                        if (fdOrient(x, y, coords[2 * e], coords[2 * e + 1], coords[2 * q], coords[2 * q + 1])) break;
+                        e = q;
+                        if (e === start) { e = -1; break; }
+                    }
+                    if (e === -1) continue;
+
+                    let t = this._addTriangle(e, i, this.hullNext[e], -1, -1, this.hullTri[e]);
+                    this.hullTri[i] = this._legalize(t + 2);
+                    this.hullTri[e] = t;
+
+                    let next = this.hullNext[e];
+                    q = this.hullNext[next];
+                    while (fdOrient(x, y, coords[2 * next], coords[2 * next + 1], coords[2 * q], coords[2 * q + 1])) {
+                        t = this._addTriangle(next, i, q, this.hullTri[i], -1, this.hullTri[next]);
+                        this.hullTri[i] = this._legalize(t + 2);
+                        this.hullNext[next] = next;
+                        next = q;
+                        q = this.hullNext[next];
+                    }
+
+                    if (e === start) {
+                        q = this.hullPrev[e];
+                        while (fdOrient(x, y, coords[2 * q], coords[2 * q + 1], coords[2 * e], coords[2 * e + 1])) {
+                            t = this._addTriangle(q, i, e, -1, this.hullTri[e], this.hullTri[q]);
+                            this._legalize(t + 2);
+                            this.hullTri[q] = t;
+                            this.hullNext[e] = e;
+                            e = q;
+                            q = this.hullPrev[e];
+                        }
+                    }
+
+                    this.hullStart = this.hullPrev[i] = e;
+                    this.hullNext[e] = this.hullPrev[next] = i;
+                    this.hullNext[i] = next;
+
+                    this.hullHash[this._hashKey(x, y)] = i;
+                    this.hullHash[this._hashKey(coords[2 * e], coords[2 * e + 1])] = e;
+                }
+
+                this.triangles = this.triangles.subarray(0, this.trianglesLen);
+            }
+
+            _hashKey(x, y) {
+                return Math.floor(fdPseudoAngle(x - this.cx, y - this.cy) * this.hashSize) % this.hashSize;
+            }
+
+            _legalize(a) {
+                const b = this.halfedges[a];
+                if (b === -1) return a;
+                const a0 = a - a % 3;
+                const b0 = b - b % 3;
+                const al = a0 + (a + 1) % 3;
+                const ar = a0 + (a + 2) % 3;
+                const bl = b0 + (b + 2) % 3;
+
+                const p0 = this.triangles[ar];
+                const pr = this.triangles[a];
+                const pl = this.triangles[al];
+                const p1 = this.triangles[bl];
+
+                const illegal = fdInCircle(
+                    this.coords[2 * p0], this.coords[2 * p0 + 1],
+                    this.coords[2 * pr], this.coords[2 * pr + 1],
+                    this.coords[2 * pl], this.coords[2 * pl + 1],
+                    this.coords[2 * p1], this.coords[2 * p1 + 1]
+                );
+
+                if (illegal) {
+                    this.triangles[a] = p1;
+                    this.triangles[b] = p0;
+
+                    const hbl = this.halfedges[bl];
+                    if (hbl === -1) {
+                        let e = this.hullStart;
+                        do {
+                            if (this.hullTri[e] === bl) { this.hullTri[e] = a; break; }
+                            e = this.hullPrev[e];
+                        } while (e !== this.hullStart);
+                    }
+                    this._link(a, hbl);
+                    this._link(b, this.halfedges[ar]);
+                    this._link(ar, bl);
+
+                    const br = b0 + (b + 1) % 3;
+                    this._legalize(a);
+                    return this._legalize(br);
+                }
+                return ar;
+            }
+
+            _link(a, b) {
+                this.halfedges[a] = b;
+                if (b !== -1) this.halfedges[b] = a;
+            }
+
+            _addTriangle(i0, i1, i2, a, b, c) {
+                const t = this.trianglesLen;
+                this.triangles[t] = i0;
+                this.triangles[t + 1] = i1;
+                this.triangles[t + 2] = i2;
+                this._link(t, a);
+                this._link(t + 1, b);
+                this._link(t + 2, c);
+                this.trianglesLen += 3;
+                return t;
+            }
+        }
+
+        function fdOrient(px, py, qx, qy, rx, ry) {
+            return (qy - py) * (rx - qx) - (qx - px) * (ry - qy) < -0;
+        }
+
+        function fdInCircle(ax, ay, bx, by, cx, cy, px, py) {
+            const dx = ax - px, dy = ay - py;
+            const ex = bx - px, ey = by - py;
+            const fx = cx - px, fy = cy - py;
+            const ap = dx * dx + dy * dy;
+            const bp = ex * ex + ey * ey;
+            const cp = fx * fx + fy * fy;
+            return dx * (ey * cp - bp * fy) - dy * (ex * cp - bp * fx) + ap * (ex * fy - ey * fx) < 0;
+        }
+
+        function fdCircumradius(ax, ay, bx, by, cx, cy) {
+            const dx = bx - ax, dy = by - ay;
+            const ex = cx - ax, ey = cy - ay;
+            const bl = dx * dx + dy * dy, cl = ex * ex + ey * ey;
+            const d = 0.5 / (dx * ey - dy * ex);
+            const x = (ey * bl - dy * cl) * d, y = (dx * cl - ex * bl) * d;
+            return x * x + y * y;
+        }
+
+        function fdCircumcenter(ax, ay, bx, by, cx, cy) {
+            const dx = bx - ax, dy = by - ay;
+            const ex = cx - ax, ey = cy - ay;
+            const bl = dx * dx + dy * dy, cl = ex * ex + ey * ey;
+            const d = 0.5 / (dx * ey - dy * ex);
+            const x = ax + (ey * bl - dy * cl) * d, y = ay + (dx * cl - ex * bl) * d;
+            return { x, y };
+        }
+
+        function fdQuicksort(ids, dists, left, right) {
+            if (right - left <= 20) {
+                for (let i = left + 1; i <= right; i++) {
+                    const a = ids[i], temp = dists[a];
+                    let j = i - 1;
+                    while (j >= left && dists[ids[j]] > temp) {
+                        ids[j + 1] = ids[j];
+                        j--;
+                    }
+                    ids[j + 1] = a;
+                }
+                return;
+            }
+            const median = (left + right) >> 1;
+            let i = left - 1, j = right + 1;
+            const t = dists[ids[median]];
+            while (true) {
+                do i++; while (dists[ids[i]] < t);
+                do j--; while (dists[ids[j]] > t);
+                if (i >= j) break;
+                fdSwap(ids, i, j);
+            }
+            fdQuicksort(ids, dists, left, j);
+            fdQuicksort(ids, dists, j + 1, right);
+        }
+
+        function fdSwap(arr, i, j) {
+            const tmp = arr[i]; arr[i] = arr[j]; arr[j] = tmp;
+        }
+
+        function fdPseudoAngle(dx, dy) {
+            const p = dx / (Math.abs(dx) + Math.abs(dy));
+            return (dy > 0 ? 3 - p : 1 + p) / 4;
+        }
+
+        // --- Build 3D Ridgeline / FE Grid Mesh ---
+        function updateRidgelineMesh() {
+            // Clear existing meshes
+            while (ridgelineGroup.children.length > 0) {
+                const obj = ridgelineGroup.children.pop();
+                if (obj.geometry) obj.geometry.dispose();
+                if (obj.material) obj.material.dispose();
+            }
+
+            const data = DEM_DATA[currentRegion];
+            if (!data) return;
+
+            const nLines = parseInt(sliderLines.value);
+            const exaggeration = parseFloat(sliderExaggeration.value);
+            const smoothWin = parseInt(sliderSmooth.value);
+            const theme = colorSelect.value;
+            const jitterAmount = 0.8;
+            const renderStyle = styleSelect.value;
+            const isShaded = checkShaded ? checkShaded.checked : false;
+            const shadingStyle = shadingStyleSelect ? shadingStyleSelect.value : 'hsl_relief';
+
+            const grid = data.grid;
+            const rows = data.rows;
+            const cols = data.cols;
+
+            const width = 120; // fixed 3D width span (E-W)
+            const depth = 120; // fixed 3D depth span (N-S)
+            const realWidthM = data.width_m > 0 ? data.width_m : 50000.0;
+            const maxElev = (data.max_elev > data.min_elev) ? (data.max_elev - data.min_elev) : 1000.0;
+
+            const heightScale = (width / realWidthM) * exaggeration;
+
+            // Multi-stop color interpolation helper
+            function interpolateColors(c0, c1, t) {
+                const col0 = new THREE.Color(c0);
+                const col1 = new THREE.Color(c1);
+                return col0.lerp(col1, t);
+            }
+
+            function getMultiStopColor(stops, t) {
+                t = Math.max(0, Math.min(1, t));
+                const n = stops.length - 1;
+                const idx = Math.min(n - 1, Math.floor(t * n));
+                const localT = (t - (idx / n)) * n;
+                return interpolateColors(stops[idx], stops[idx + 1], localT);
+            }
+
+            function getColor(heightRatio, lightnessMult = 1.0) {
+                if (theme === 'white') {
+                    const l = Math.max(0, Math.min(1, 1.0 * lightnessMult));
+                    const c = new THREE.Color();
+                    c.setHSL(0, 0, l);
+                    return c;
+                }
+                if (theme === 'cyan') {
+                    const l = Math.max(0.1, Math.min(0.9, 0.50 * lightnessMult));
+                    const c = new THREE.Color();
+                    c.setHSL(0.51, 1.0, l);
+                    return c;
+                }
+                if (theme === 'gold') {
+                    const l = Math.max(0.1, Math.min(0.9, 0.51 * lightnessMult));
+                    const c = new THREE.Color();
+                    c.setHSL(0.12, 1.0, l);
+                    return c;
+                }
+                if (theme === 'pink') {
+                    const l = Math.max(0.1, Math.min(0.9, 0.50 * lightnessMult));
+                    const c = new THREE.Color();
+                    c.setHSL(0.92, 1.0, l);
+                    return c;
+                }
+                if (theme === 'height') {
+                    const minP = sliderElevMin ? (parseFloat(sliderElevMin.value) || 0) / 100.0 : 0.0;
+                    const maxP = sliderElevMax ? (parseFloat(sliderElevMax.value) || 100) / 100.0 : 1.0;
+                    const span = Math.max(0.001, maxP - minP);
+                    const clampedRatio = Math.max(0.0, Math.min(1.0, (heightRatio - minP) / span));
+
+                    const palette = heatmapPaletteSelect ? heatmapPaletteSelect.value : 'turbo';
+
+                    if (palette === 'custom') {
+                        const hStart = sliderHueStart ? (parseFloat(sliderHueStart.value) || 0.65) : 0.65;
+                        const hEnd = sliderHueEnd ? (parseFloat(sliderHueEnd.value) || 0.0) : 0.0;
+                        const hue = hStart + (hEnd - hStart) * clampedRatio;
+                        const c = new THREE.Color();
+                        const baseL = 0.54;
+                        const finalL = Math.max(0.12, Math.min(0.88, baseL * lightnessMult));
+                        c.setHSL(hue, 0.95, finalL);
+                        return c;
+                    } else if (palette === 'turbo') {
+                        // Full Spectrum continuous Rainbow (Blue 0.65 -> Cyan 0.50 -> Green 0.33 -> Yellow 0.16 -> Orange 0.08 -> Red 0.00)
+                        const hue = (1.0 - clampedRatio) * 0.65;
+                        const c = new THREE.Color();
+                        const baseL = 0.54;
+                        const finalL = Math.max(0.12, Math.min(0.88, baseL * lightnessMult));
+                        c.setHSL(hue, 0.95, finalL);
+                        return c;
+                    } else {
+                        let stops;
+                        if (palette === 'viridis') {
+                            stops = ['#440154', '#482878', '#3e4989', '#31688e', '#26828e', '#1f9e89', '#35b779', '#6ece58', '#b5de2b', '#fde725'];
+                        } else if (palette === 'magma') {
+                            stops = ['#000004', '#180f3d', '#440f76', '#721f81', '#9e2f7f', '#cd4071', '#f1605d', '#fd9668', '#feca8d', '#fcfdbf'];
+                        } else if (palette === 'terrain') {
+                            stops = ['#023e8a', '#0077b6', '#0096c7', '#2d6a4f', '#52b788', '#95d5b2', '#d4a373', '#e9d8a6', '#ffffff'];
+                        } else {
+                            stops = ['#03071e', '#370617', '#6a040f', '#9d0208', '#d00000', '#dc2f02', '#e85d04', '#f48c06', '#faa307', '#ffba08'];
+                        }
+                        const baseCol = getMultiStopColor(stops, clampedRatio);
+                        if (lightnessMult !== 1.0) {
+                            const hsl = {};
+                            baseCol.getHSL(hsl);
+                            baseCol.setHSL(hsl.h, hsl.s, Math.max(0.12, Math.min(0.88, hsl.l * lightnessMult)));
+                        }
+                        return baseCol;
+                    }
+                }
+                return new THREE.Color(0xffffff);
+            }
+
+            function hash2D(r, c) {
+                const sinVal = Math.sin(r * 12.9898 + c * 78.233) * 43758.5453;
+                return sinVal - Math.floor(sinVal);
+            }
+
+            function sampleDEM(grid, rows, cols, u, v) {
+                u = Math.max(0, Math.min(1, u));
+                v = Math.max(0, Math.min(1, v));
+
+                const rFloat = v * (rows - 1);
+                const cFloat = u * (cols - 1);
+
+                const r0 = Math.floor(rFloat);
+                const r1 = Math.min(rows - 1, r0 + 1);
+                const c0 = Math.floor(cFloat);
+                const c1 = Math.min(cols - 1, c0 + 1);
+
+                const dr = rFloat - r0;
+                const dc = cFloat - c0;
+
+                const h00 = grid[r0][c0];
+                const h01 = grid[r0][c1];
+                const h10 = grid[r1][c0];
+                const h11 = grid[r1][c1];
+
+                const top = h00 * (1 - dc) + h01 * dc;
+                const bot = h10 * (1 - dc) + h11 * dc;
+
+                return top * (1 - dr) + bot * dr;
+            }
+
+            // Fixed sun direction for true directional 3D relief
+            const sunDir = new THREE.Vector3(0.36, 0.87, 0.36).normalize();
+
+            if (renderStyle === 'fe_gradual') {
+                // --- Quality Adaptive Delaunay TIN Mesh (Chew's Second Algorithm + Spatial Poisson Rejection) ---
+                const baseRes = Math.max(20, Math.floor(nLines * 0.55));
+                const eps = 0.01;
+
+                function getSlope(u, v) {
+                    const hx = sampleDEM(grid, rows, cols, Math.min(1, u + eps), v) - sampleDEM(grid, rows, cols, Math.max(0, u - eps), v);
+                    const hy = sampleDEM(grid, rows, cols, u, Math.min(1, v + eps)) - sampleDEM(grid, rows, cols, u, Math.max(0, v - eps));
+                    return Math.sqrt(hx * hx + hy * hy);
+                }
+
+                let maxS = 0.001;
+                for (let r = 0; r < 20; r++) {
+                    for (let c = 0; c < 20; c++) {
+                        const s = getSlope(c / 19, r / 19);
+                        if (s > maxS) maxS = s;
+                    }
+                }
+
+                function getTargetSpacing(u, v) {
+                    const sRatio = getSlope(u, v) / maxS;
+                    const hVal = sampleDEM(grid, rows, cols, u, v);
+                    const hRatio = Math.max(0, Math.min(1, hVal / maxElev));
+                    const importance = 0.15 + 0.85 * Math.pow(sRatio * 0.65 + hRatio * 0.35, 1.25);
+                    return (1.0 / baseRes) * (1.2 / (1.0 + 2.5 * importance));
+                }
+
+                // 1. Spatial Poisson-Disk Sampling to eliminate coincident / sliver points
+                const rawPoints = [];
+                const cellSize = 0.5 / baseRes;
+                const gridCols = Math.ceil(1.0 / cellSize);
+                const spatialGrid = new Int32Array(gridCols * gridCols).fill(-1);
+
+                function addPoint(x, y) {
+                    x = Math.max(0, Math.min(1, x));
+                    y = Math.max(0, Math.min(1, y));
+                    const r = getTargetSpacing(x, y) * 0.7;
+                    const gx = Math.floor(x / cellSize), gy = Math.floor(y / cellSize);
+
+                    const minGx = Math.max(0, gx - 2), maxGx = Math.min(gridCols - 1, gx + 2);
+                    const minGy = Math.max(0, gy - 2), maxGy = Math.min(gridCols - 1, gy + 2);
+
+                    for (let j = minGy; j <= maxGy; j++) {
+                        for (let i = minGx; i <= maxGx; i++) {
+                            const pIdx = spatialGrid[j * gridCols + i];
+                            if (pIdx !== -1) {
+                                const px = rawPoints[2 * pIdx], py = rawPoints[2 * pIdx + 1];
+                                if ((x - px)**2 + (y - py)**2 < r * r) return false;
+                            }
+                        }
+                    }
+
+                    const idx = rawPoints.length >> 1;
+                    rawPoints.push(x, y);
+                    if (gx >= 0 && gx < gridCols && gy >= 0 && gy < gridCols) {
+                        spatialGrid[gy * gridCols + gx] = idx;
+                    }
+                    return true;
+                }
+
+                // Boundary points for sharp rectangular model borders
+                for (let i = 0; i <= baseRes; i++) {
+                    const t = i / baseRes;
+                    addPoint(t, 0); addPoint(t, 1);
+                    if (i > 0 && i < baseRes) { addPoint(0, t); addPoint(1, t); }
+                }
+
+                // Internal points with adaptive importance
+                for (let r = 1; r < baseRes; r++) {
+                    for (let c = 1; c < baseRes; c++) {
+                        const u = c / baseRes, v = r / baseRes;
+                        const targetR = getTargetSpacing(u, v);
+                        const jitScale = targetR * 0.45 * jitterAmount;
+                        const jitU = (hash2D(r * 17.3, c * 31.7) - 0.5) * jitScale;
+                        const jitV = (hash2D(c * 43.1, r * 19.9) - 0.5) * jitScale;
+                        addPoint(u + jitU, v + jitV);
+
+                        if (targetR < 0.6 / baseRes) {
+                            for (let k = 0; k < 3; k++) {
+                                const su = u + (hash2D(r * 53.1 + k * 11.3, c * 29.7 + k * 7.1) - 0.5) * targetR * 1.5;
+                                const sv = v + (hash2D(c * 67.3 + k * 13.9, r * 37.1 + k * 17.3) - 0.5) * targetR * 1.5;
+                                addPoint(su, sv);
+                            }
+                        }
+                    }
+                }
+
+                // 2. Chew's Second Algorithm (Circumcenter refinement to remove bad aspect triangles)
+                let delaunay = new FastDelaunay(rawPoints);
+
+                for (let pass = 0; pass < 2; pass++) {
+                    let added = 0;
+                    const numTriangles = delaunay.triangles.length / 3;
+                    for (let t = 0; t < numTriangles; t++) {
+                        const i0 = delaunay.triangles[t * 3], i1 = delaunay.triangles[t * 3 + 1], i2 = delaunay.triangles[t * 3 + 2];
+                        const x0 = rawPoints[2 * i0], y0 = rawPoints[2 * i0 + 1];
+                        const x1 = rawPoints[2 * i1], y1 = rawPoints[2 * i1 + 1];
+                        const x2 = rawPoints[2 * i2], y2 = rawPoints[2 * i2 + 1];
+
+                        const a = Math.hypot(x1 - x0, y1 - y0);
+                        const b = Math.hypot(x2 - x1, y2 - y1);
+                        const c = Math.hypot(x0 - x2, y0 - y2);
+                        const minEdge = Math.min(a, b, c);
+
+                        const cc = fdCircumcenter(x0, y0, x1, y1, x2, y2);
+                        const rad = Math.hypot(cc.x - x0, cc.y - y0);
+
+                        if (rad / (minEdge || 1e-5) > 1.25 && cc.x > 0.02 && cc.x < 0.98 && cc.y > 0.02 && cc.y < 0.98) {
+                            if (addPoint(cc.x, cc.y)) added++;
+                        }
+                    }
+                    if (added > 0) delaunay = new FastDelaunay(rawPoints);
+                    else break;
+                }
+
+                // 3. Centroidal Lloyd Relaxation for smooth, finite-element grade equilateral triangles
+                const numPts = rawPoints.length >> 1;
+                const neighbors = Array.from({ length: numPts }, () => []);
+                for (let i = 0; i < delaunay.triangles.length; i += 3) {
+                    const i0 = delaunay.triangles[i], i1 = delaunay.triangles[i + 1], i2 = delaunay.triangles[i + 2];
+                    neighbors[i0].push(i1, i2);
+                    neighbors[i1].push(i0, i2);
+                    neighbors[i2].push(i0, i1);
+                }
+
+                for (let i = 0; i < numPts; i++) {
+                    const px = rawPoints[2 * i], py = rawPoints[2 * i + 1];
+                    if (px <= 0.005 || px >= 0.995 || py <= 0.005 || py >= 0.995) continue;
+                    const nbrs = neighbors[i];
+                    if (nbrs.length === 0) continue;
+                    let sumX = 0, sumY = 0;
+                    for (let j = 0; j < nbrs.length; j++) {
+                        sumX += rawPoints[2 * nbrs[j]];
+                        sumY += rawPoints[2 * nbrs[j] + 1];
+                    }
+                    const cx = sumX / nbrs.length, cy = sumY / nbrs.length;
+                    rawPoints[2 * i] = px * 0.5 + cx * 0.5;
+                    rawPoints[2 * i + 1] = py * 0.5 + cy * 0.5;
+                }
+
+                // Final Delaunay triangulation
+                delaunay = new FastDelaunay(rawPoints);
+
+                const positions = [];
+                const colors = [];
+
+                for (let i = 0; i < numPts; i++) {
+                    const uN = rawPoints[2 * i];
+                    const vN = rawPoints[2 * i + 1];
+                    const xPos = (uN - 0.5) * width;
+                    const zPos = (vN - 0.5) * depth;
+                    const elevVal = sampleDEM(grid, rows, cols, uN, vN);
+                    const yPos = elevVal * heightScale;
+                    const hRatio = Math.min(1.0, Math.max(0.0, elevVal / maxElev));
+                    const ptColor = getColor(hRatio);
+
+                    positions.push(xPos, yPos, zPos);
+                    colors.push(ptColor.r, ptColor.g, ptColor.b);
+                }
+
+                const indices = Array.from(delaunay.triangles);
+
+                const geom = new THREE.BufferGeometry();
+                geom.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+                geom.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+                geom.setIndex(indices);
+                geom.computeVertexNormals();
+
+                // Direct line segments with exact per-vertex elevation colors
+                const linePositions = [];
+                const lineColors = [];
+                for (let i = 0; i < indices.length; i += 3) {
+                    const i0 = indices[i];
+                    const i1 = indices[i + 1];
+                    const i2 = indices[i + 2];
+
+                    function addLineEdge(idxA, idxB) {
+                        linePositions.push(positions[idxA * 3], positions[idxA * 3 + 1], positions[idxA * 3 + 2]);
+                        linePositions.push(positions[idxB * 3], positions[idxB * 3 + 1], positions[idxB * 3 + 2]);
+                        lineColors.push(colors[idxA * 3], colors[idxA * 3 + 1], colors[idxA * 3 + 2]);
+                        lineColors.push(colors[idxB * 3], colors[idxB * 3 + 1], colors[idxB * 3 + 2]);
+                    }
+                    addLineEdge(i0, i1);
+                    addLineEdge(i1, i2);
+                    addLineEdge(i2, i0);
+                }
+
+                if (isShaded) {
+                    if (shadingStyle === 'hsl_relief') {
+                        // True HSL Lightness Shading: calculates slope relief without shifting hue or desaturating colors
+                        const facetedPos = [];
+                        const facetedCol = [];
+                        for (let i = 0; i < indices.length; i += 3) {
+                            const i0 = indices[i], i1 = indices[i + 1], i2 = indices[i + 2];
+                            const p0 = new THREE.Vector3(positions[i0*3], positions[i0*3+1], positions[i0*3+2]);
+                            const p1 = new THREE.Vector3(positions[i1*3], positions[i1*3+1], positions[i1*3+2]);
+                            const p2 = new THREE.Vector3(positions[i2*3], positions[i2*3+1], positions[i2*3+2]);
+
+                            const cb = new THREE.Vector3().subVectors(p2, p1);
+                            const ab = new THREE.Vector3().subVectors(p0, p1);
+                            const norm = new THREE.Vector3().crossVectors(cb, ab).normalize();
+                            const dot = Math.max(0, norm.dot(sunDir));
+                            const lightMult = 0.72 + 0.38 * dot;
+
+                            function pushFacetedPt(idx, pt) {
+                                facetedPos.push(pt.x, pt.y, pt.z);
+                                const elevVal = sampleDEM(grid, rows, cols, rawPoints[idx*2], rawPoints[idx*2+1]);
+                                const hRatio = Math.min(1.0, Math.max(0.0, elevVal / maxElev));
+                                const c = getColor(hRatio, lightMult);
+                                facetedCol.push(c.r, c.g, c.b);
+                            }
+                            pushFacetedPt(i0, p0); pushFacetedPt(i1, p1); pushFacetedPt(i2, p2);
+                        }
+                        const facetedGeo = new THREE.BufferGeometry();
+                        facetedGeo.setAttribute('position', new THREE.Float32BufferAttribute(facetedPos, 3));
+                        facetedGeo.setAttribute('color', new THREE.Float32BufferAttribute(facetedCol, 3));
+                        facetedGeo.computeVertexNormals();
+
+                        const surfaceMat = new THREE.MeshBasicMaterial({
+                            vertexColors: true,
+                            side: THREE.DoubleSide,
+                            polygonOffset: true,
+                            polygonOffsetFactor: 1,
+                            polygonOffsetUnits: 1
+                        });
+                        const surfaceMesh = new THREE.Mesh(facetedGeo, surfaceMat);
+                        surfaceMesh.isShadedSurface = true;
+                        ridgelineGroup.add(surfaceMesh);
+                    } else if (shadingStyle === 'unlit') {
+                        const surfaceMat = new THREE.MeshBasicMaterial({
+                            vertexColors: true,
+                            side: THREE.DoubleSide,
+                            polygonOffset: true,
+                            polygonOffsetFactor: 1,
+                            polygonOffsetUnits: 1
+                        });
+                        const surfaceMesh = new THREE.Mesh(geom, surfaceMat);
+                        surfaceMesh.isShadedSurface = true;
+                        ridgelineGroup.add(surfaceMesh);
+                    } else if (shadingStyle === 'smooth') {
+                        const surfaceMat = new THREE.MeshPhongMaterial({
+                            vertexColors: true,
+                            side: THREE.DoubleSide,
+                            flatShading: false,
+                            shininess: 0,
+                            polygonOffset: true,
+                            polygonOffsetFactor: 1,
+                            polygonOffsetUnits: 1
+                        });
+                        const surfaceMesh = new THREE.Mesh(geom, surfaceMat);
+                        surfaceMesh.isShadedSurface = true;
+                        ridgelineGroup.add(surfaceMesh);
+                    } else {
+                        const surfaceMat = new THREE.MeshPhongMaterial({
+                            vertexColors: true,
+                            side: THREE.DoubleSide,
+                            flatShading: true,
+                            shininess: 15,
+                            polygonOffset: true,
+                            polygonOffsetFactor: 1,
+                            polygonOffsetUnits: 1
+                        });
+                        const surfaceMesh = new THREE.Mesh(geom, surfaceMat);
+                        surfaceMesh.isShadedSurface = true;
+                        ridgelineGroup.add(surfaceMesh);
+                    }
+
+                    // Subtle wireframe overlay
+                    const lineGeo = new THREE.BufferGeometry();
+                    lineGeo.setAttribute('position', new THREE.Float32BufferAttribute(linePositions, 3));
+                    const lineMat = new THREE.LineBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.35, linewidth: 1.5 });
+                    const lineMesh = new THREE.LineSegments(lineGeo, lineMat);
+                    ridgelineGroup.add(lineMesh);
+                } else {
+                    // Occluding base surface for clean line art depth
+                    const fillMat = new THREE.MeshBasicMaterial({
+                        color: 0x0a0a0c,
+                        side: THREE.DoubleSide,
+                        polygonOffset: true,
+                        polygonOffsetFactor: 1,
+                        polygonOffsetUnits: 1
+                    });
+                    const fillMesh = new THREE.Mesh(geom, fillMat);
+                    fillMesh.isOccluder = true;
+                    ridgelineGroup.add(fillMesh);
+
+                    // Full color wireframe lines
+                    const lineGeo = new THREE.BufferGeometry();
+                    lineGeo.setAttribute('position', new THREE.Float32BufferAttribute(linePositions, 3));
+                    lineGeo.setAttribute('color', new THREE.Float32BufferAttribute(lineColors, 3));
+                    const lineMat = new THREE.LineBasicMaterial({ vertexColors: true, linewidth: 2.0 });
+                    const lineMesh = new THREE.LineSegments(lineGeo, lineMat);
+                    ridgelineGroup.add(lineMesh);
+                }
+            } else if (renderStyle === 'fe_wireframe') {
+                // --- Uniform Finite Element (FE) Tessellated 3D Grid ---
+                const geom = new THREE.BufferGeometry();
+                const positions = [];
+                const colors = [];
+                const indices = [];
+
+                const nCols = Math.floor(nLines * 1.2);
+
+                for (let l = 0; l < nLines; l++) {
+                    const baseV = l / (nLines - 1);
+
+                    for (let c = 0; c < nCols; c++) {
+                        const baseU = c / (nCols - 1);
+                        let uNorm = baseU;
+                        let vNorm = baseV;
+
+                        // Apply horizontal vertex position jitter to internal nodes
+                        if (l > 0 && l < nLines - 1 && c > 0 && c < nCols - 1 && jitterAmount > 0) {
+                            const cellU = 1.0 / (nCols - 1);
+                            const cellV = 1.0 / (nLines - 1);
+                            uNorm += (hash2D(l, c) - 0.5) * cellU * jitterAmount;
+                            vNorm += (hash2D(c, l) - 0.5) * cellV * jitterAmount;
+                            uNorm = Math.max(0, Math.min(1, uNorm));
+                            vNorm = Math.max(0, Math.min(1, vNorm));
+                        }
+
+                        // Calculate 3D horizontal position (X, Z)
+                        const xPos = (uNorm - 0.5) * width;
+                        const zPos = (vNorm - 0.5) * depth;
+
+                        // Interpolate exact DEM elevation height Z at this randomized (u, v) location
+                        const elevVal = sampleDEM(grid, rows, cols, uNorm, vNorm);
+                        const yPos = elevVal * heightScale;
+                        const hRatio = Math.min(1.0, Math.max(0.0, elevVal / maxElev));
+                        const ptColor = getColor(hRatio);
+
+                        positions.push(xPos, yPos, zPos);
+                        colors.push(ptColor.r, ptColor.g, ptColor.b);
+                    }
+                }
+
+                // Quad grid triangulation indices
+                for (let l = 0; l < nLines - 1; l++) {
+                    for (let c = 0; c < nCols - 1; c++) {
+                        const i0 = l * nCols + c;
+                        const i1 = l * nCols + (c + 1);
+                        const i2 = (l + 1) * nCols + c;
+                        const i3 = (l + 1) * nCols + (c + 1);
+
+                        indices.push(i0, i2, i1);
+                        indices.push(i1, i2, i3);
+                    }
+                }
+
+                geom.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+                geom.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+                geom.setIndex(indices);
+                geom.computeVertexNormals();
+
+                // Direct line segment wireframe
+                const linePositions = [];
+                const lineColors = [];
+                for (let i = 0; i < indices.length; i += 3) {
+                    const i0 = indices[i], i1 = indices[i + 1], i2 = indices[i + 2];
+                    function addLineEdge(a, b) {
+                        linePositions.push(positions[a * 3], positions[a * 3 + 1], positions[a * 3 + 2]);
+                        linePositions.push(positions[b * 3], positions[b * 3 + 1], positions[b * 3 + 2]);
+                        lineColors.push(colors[a * 3], colors[a * 3 + 1], colors[a * 3 + 2]);
+                        lineColors.push(colors[b * 3], colors[b * 3 + 1], colors[b * 3 + 2]);
+                    }
+                    addLineEdge(i0, i1); addLineEdge(i1, i2); addLineEdge(i2, i0);
+                }
+
+                if (isShaded) {
+                    if (shadingStyle === 'hsl_relief') {
+                        const facetedPos = [];
+                        const facetedCol = [];
+                        for (let i = 0; i < indices.length; i += 3) {
+                            const i0 = indices[i], i1 = indices[i + 1], i2 = indices[i + 2];
+                            const p0 = new THREE.Vector3(positions[i0*3], positions[i0*3+1], positions[i0*3+2]);
+                            const p1 = new THREE.Vector3(positions[i1*3], positions[i1*3+1], positions[i1*3+2]);
+                            const p2 = new THREE.Vector3(positions[i2*3], positions[i2*3+1], positions[i2*3+2]);
+
+                            const cb = new THREE.Vector3().subVectors(p2, p1);
+                            const ab = new THREE.Vector3().subVectors(p0, p1);
+                            const norm = new THREE.Vector3().crossVectors(cb, ab).normalize();
+                            const dot = Math.max(0, norm.dot(sunDir));
+                            const lightMult = 0.72 + 0.38 * dot;
+
+                            function pushFacetedQuadPt(idx, pt) {
+                                facetedPos.push(pt.x, pt.y, pt.z);
+                                const elevVal = pt.y / heightScale;
+                                const hRatio = Math.min(1.0, Math.max(0.0, elevVal / maxElev));
+                                const c = getColor(hRatio, lightMult);
+                                facetedCol.push(c.r, c.g, c.b);
+                            }
+                            pushFacetedQuadPt(i0, p0); pushFacetedQuadPt(i1, p1); pushFacetedQuadPt(i2, p2);
+                        }
+                        const facetedGeo = new THREE.BufferGeometry();
+                        facetedGeo.setAttribute('position', new THREE.Float32BufferAttribute(facetedPos, 3));
+                        facetedGeo.setAttribute('color', new THREE.Float32BufferAttribute(facetedCol, 3));
+                        facetedGeo.computeVertexNormals();
+
+                        const surfaceMat = new THREE.MeshBasicMaterial({
+                            vertexColors: true,
+                            side: THREE.DoubleSide,
+                            polygonOffset: true,
+                            polygonOffsetFactor: 1,
+                            polygonOffsetUnits: 1
+                        });
+                        const surfaceMesh = new THREE.Mesh(facetedGeo, surfaceMat);
+                        surfaceMesh.isShadedSurface = true;
+                        ridgelineGroup.add(surfaceMesh);
+                    } else if (shadingStyle === 'unlit') {
+                        const surfaceMat = new THREE.MeshBasicMaterial({
+                            vertexColors: true,
+                            side: THREE.DoubleSide,
+                            polygonOffset: true,
+                            polygonOffsetFactor: 1,
+                            polygonOffsetUnits: 1
+                        });
+                        const surfaceMesh = new THREE.Mesh(geom, surfaceMat);
+                        surfaceMesh.isShadedSurface = true;
+                        ridgelineGroup.add(surfaceMesh);
+                    } else if (shadingStyle === 'smooth') {
+                        const surfaceMat = new THREE.MeshPhongMaterial({
+                            vertexColors: true,
+                            side: THREE.DoubleSide,
+                            flatShading: false,
+                            shininess: 0,
+                            polygonOffset: true,
+                            polygonOffsetFactor: 1,
+                            polygonOffsetUnits: 1
+                        });
+                        const surfaceMesh = new THREE.Mesh(geom, surfaceMat);
+                        surfaceMesh.isShadedSurface = true;
+                        ridgelineGroup.add(surfaceMesh);
+                    } else {
+                        const surfaceMat = new THREE.MeshPhongMaterial({
+                            vertexColors: true,
+                            side: THREE.DoubleSide,
+                            flatShading: true,
+                            shininess: 15,
+                            polygonOffset: true,
+                            polygonOffsetFactor: 1,
+                            polygonOffsetUnits: 1
+                        });
+                        const surfaceMesh = new THREE.Mesh(geom, surfaceMat);
+                        surfaceMesh.isShadedSurface = true;
+                        ridgelineGroup.add(surfaceMesh);
+                    }
+
+                    const lineGeo = new THREE.BufferGeometry();
+                    lineGeo.setAttribute('position', new THREE.Float32BufferAttribute(linePositions, 3));
+                    const lineMat = new THREE.LineBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.35, linewidth: 1.5 });
+                    const lineMesh = new THREE.LineSegments(lineGeo, lineMat);
+                    ridgelineGroup.add(lineMesh);
+                } else {
+                    const fillMat = new THREE.MeshBasicMaterial({
+                        color: 0x0a0a0c,
+                        side: THREE.DoubleSide,
+                        polygonOffset: true,
+                        polygonOffsetFactor: 1,
+                        polygonOffsetUnits: 1
+                    });
+                    const fillMesh = new THREE.Mesh(geom, fillMat);
+                    fillMesh.isOccluder = true;
+                    ridgelineGroup.add(fillMesh);
+
+                    const lineGeo = new THREE.BufferGeometry();
+                    lineGeo.setAttribute('position', new THREE.Float32BufferAttribute(linePositions, 3));
+                    lineGeo.setAttribute('color', new THREE.Float32BufferAttribute(lineColors, 3));
+
+                    const lineMat = new THREE.LineBasicMaterial({ vertexColors: true, linewidth: 2.0 });
+                    const lineMesh = new THREE.LineSegments(lineGeo, lineMat);
+                    ridgelineGroup.add(lineMesh);
+                }
+            } else {
+                // --- Joy Division Stacked Ridgeline Slices ---
+                if (isShaded) {
+                    // Shaded 3D continuous terrain underlay
+                    const tRows = Math.min(nLines, 80);
+                    const tCols = Math.min(cols, 80);
+                    const tPos = [];
+                    const tCol = [];
+                    const tIdx = [];
+
+                    for (let r = 0; r < tRows; r++) {
+                        const v = r / (tRows - 1);
+                        const rIdx = Math.floor(v * (rows - 1));
+                        const smoothed = smoothArray(grid[rIdx], smoothWin);
+                        const zPos = (v - 0.5) * depth;
+
+                        for (let c = 0; c < tCols; c++) {
+                            const u = c / (tCols - 1);
+                            const cIdx = Math.floor(u * (cols - 1));
+                            const xPos = (u - 0.5) * width;
+                            const elev = smoothed[cIdx];
+                            const yPos = elev * heightScale;
+                            const hRatio = Math.min(1.0, Math.max(0.0, elev / maxElev));
+                            const col = getColor(hRatio);
+
+                            tPos.push(xPos, yPos, zPos);
+                            tCol.push(col.r, col.g, col.b);
+                        }
+                    }
+
+                    for (let r = 0; r < tRows - 1; r++) {
+                        for (let c = 0; c < tCols - 1; c++) {
+                            const i0 = r * tCols + c;
+                            const i1 = r * tCols + (c + 1);
+                            const i2 = (r + 1) * tCols + c;
+                            const i3 = (r + 1) * tCols + (c + 1);
+                            tIdx.push(i0, i2, i1);
+                            tIdx.push(i1, i2, i3);
+                        }
+                    }
+
+                    const terrainGeo = new THREE.BufferGeometry();
+                    terrainGeo.setAttribute('position', new THREE.Float32BufferAttribute(tPos, 3));
+                    terrainGeo.setAttribute('color', new THREE.Float32BufferAttribute(tCol, 3));
+                    terrainGeo.setIndex(tIdx);
+                    terrainGeo.computeVertexNormals();
+
+                    if (shadingStyle === 'hsl_relief' || shadingStyle === 'unlit') {
+                        const terrainMat = new THREE.MeshBasicMaterial({
+                            vertexColors: true,
+                            side: THREE.DoubleSide,
+                            polygonOffset: true,
+                            polygonOffsetFactor: 1,
+                            polygonOffsetUnits: 1
+                        });
+                        const terrainMesh = new THREE.Mesh(terrainGeo, terrainMat);
+                        terrainMesh.isShadedSurface = true;
+                        ridgelineGroup.add(terrainMesh);
+                    } else {
+                        const terrainMat = new THREE.MeshPhongMaterial({
+                            vertexColors: true,
+                            side: THREE.DoubleSide,
+                            flatShading: shadingStyle === 'faceted',
+                            shininess: shadingStyle === 'faceted' ? 15 : 0,
+                            polygonOffset: true,
+                            polygonOffsetFactor: 1,
+                            polygonOffsetUnits: 1
+                        });
+                        const terrainMesh = new THREE.Mesh(terrainGeo, terrainMat);
+                        terrainMesh.isShadedSurface = true;
+                        ridgelineGroup.add(terrainMesh);
+                    }
+                }
+
+                for (let l = 0; l < nLines; l++) {
+                    const rIdx = Math.floor((l / (nLines - 1)) * (rows - 1));
+                    const rawRow = grid[rIdx];
+                    const smoothedRow = smoothArray(rawRow, smoothWin);
+
+                    const numPts = cols;
+                    const linePositions = [];
+                    const lineColors = [];
+                    const fillPositions = [];
+                    const fillIndices = [];
+
+                    const zPos = ((l / (nLines - 1)) - 0.5) * depth;
+                    const baseY = -20;
+
+                    for (let c = 0; c < numPts; c++) {
+                        const xPos = ((c / (numPts - 1)) - 0.5) * width;
+                        const yPos = smoothedRow[c] * heightScale;
+                        const hRatio = Math.min(1.0, Math.max(0.0, smoothedRow[c] / maxElev));
+                        const ptColor = getColor(hRatio);
+
+                        linePositions.push(xPos, yPos, zPos);
+                        lineColors.push(ptColor.r, ptColor.g, ptColor.b);
+
+                        fillPositions.push(xPos, yPos, zPos);
+                        fillPositions.push(xPos, baseY, zPos);
+                    }
+
+                    for (let c = 0; c < numPts - 1; c++) {
+                        const topL = c * 2;
+                        const botL = c * 2 + 1;
+                        const topR = (c + 1) * 2;
+                        const botR = (c + 1) * 2 + 1;
+
+                        fillIndices.push(topL, botL, topR);
+                        fillIndices.push(topR, botL, botR);
+                    }
+
+                    const fillGeo = new THREE.BufferGeometry();
+                    fillGeo.setAttribute('position', new THREE.Float32BufferAttribute(fillPositions, 3));
+                    fillGeo.setIndex(fillIndices);
+
+                    const fillMat = new THREE.MeshBasicMaterial({
+                        color: 0x0a0a0c,
+                        side: THREE.DoubleSide,
+                        polygonOffset: true,
+                        polygonOffsetFactor: 1,
+                        polygonOffsetUnits: 1
+                    });
+                    const fillMesh = new THREE.Mesh(fillGeo, fillMat);
+                    fillMesh.isOccluder = true;
+                    ridgelineGroup.add(fillMesh);
+
+                    const lineGeo = new THREE.BufferGeometry();
+                    lineGeo.setAttribute('position', new THREE.Float32BufferAttribute(linePositions, 3));
+                    lineGeo.setAttribute('color', new THREE.Float32BufferAttribute(lineColors, 3));
+
+                    const lineMat = new THREE.LineBasicMaterial({
+                        vertexColors: true,
+                        linewidth: isShaded ? 2.5 : 1.5
+                    });
+                    const lineMesh = new THREE.Line(lineGeo, lineMat);
+                    ridgelineGroup.add(lineMesh);
+                }
+            }
+        }
+
+        // --- Event Listeners ---
+        regionSelect.addEventListener('change', (e) => {
+            currentRegion = e.target.value;
+            controls.target.set(0, 15, 0);
+            controls.update();
+            updateRidgelineMesh();
+        });
+
+        styleSelect.addEventListener('change', () => {
+            updateRidgelineMesh();
+        });
+
+        function updateShadingUI() {
+            if (checkShaded && checkShaded.checked) {
+                shadingStyleGroup.style.display = 'block';
+            } else {
+                shadingStyleGroup.style.display = 'none';
+            }
+        }
+
+        checkShaded.addEventListener('change', () => {
+            updateShadingUI();
+            updateRidgelineMesh();
+        });
+
+        shadingStyleSelect.addEventListener('change', () => {
+            updateRidgelineMesh();
+        });
+
+        sliderExaggeration.addEventListener('input', (e) => {
+            valExaggeration.textContent = parseFloat(e.target.value).toFixed(1) + 'x';
+            updateRidgelineMesh();
+        });
+
+        sliderLines.addEventListener('input', (e) => {
+            valLines.textContent = e.target.value;
+            updateRidgelineMesh();
+        });
+
+        sliderSmooth.addEventListener('input', (e) => {
+            valSmooth.textContent = e.target.value;
+            updateRidgelineMesh();
+        });
+
+        // --- Navigation Mode & Flight Control State ---
+        let navMode = 'flight';
+        let flightSpeed = 80;
+        const keysPressed = {};
+
+        const navModeSelect = document.getElementById('nav-mode-select');
+        const flightGroup = document.getElementById('flight-controls-group');
+        const orbitGroup = document.getElementById('orbit-controls-group');
+        const sliderSpeed = document.getElementById('slider-speed');
+        const valSpeed = document.getElementById('val-speed');
+        const instructionsBar = document.getElementById('instructions-bar');
+
+        navModeSelect.addEventListener('change', (e) => {
+            navMode = e.target.value;
+            if (navMode === 'flight') {
+                flightGroup.style.display = 'flex';
+                orbitGroup.style.display = 'none';
+                instructionsBar.innerHTML = '✈️ <span>Flight Mode</span>: Hold <span>W / Up Arrow</span> or <span>🚀 Forward</span> to Fly through 3D landscape | Drag to Look Around | <span>A/D</span> Strafe';
+            } else {
+                flightGroup.style.display = 'none';
+                orbitGroup.style.display = 'flex';
+                instructionsBar.innerHTML = '🍎 <span>Orbit Mode</span>: <span>Shift + Scroll</span> or <span>PAN Mode</span> to Pan | Drag to Rotate | <span>Scroll</span> to Zoom';
+            }
+        });
+
+        sliderSpeed.addEventListener('input', (e) => {
+            flightSpeed = parseFloat(e.target.value);
+            valSpeed.textContent = flightSpeed;
+            controls.autoRotateSpeed = (flightSpeed / 80.0) * 2.0;
+        });
+
+        // Automatically blur UI controls after interaction so Arrow keys always control 3D flight
+        document.querySelectorAll('input, select, button').forEach(el => {
+            el.addEventListener('change', () => el.blur());
+            el.addEventListener('mouseup', () => el.blur());
+            el.addEventListener('touchend', () => el.blur());
+        });
+
+        // Keyboard WASD & Arrow Key Flight Listeners
+        window.addEventListener('keydown', (e) => {
+            if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' '].includes(e.key)) {
+                e.preventDefault();
+                if (document.activeElement && document.activeElement !== document.body) {
+                    document.activeElement.blur();
+                }
+            }
+            keysPressed[e.key.toLowerCase()] = true;
+        });
+        window.addEventListener('keyup', (e) => {
+            keysPressed[e.key.toLowerCase()] = false;
+        });
+
+        // Helper to bind on-screen button hold events
+        function bindHoldButton(btnId, keyName) {
+            const btn = document.getElementById(btnId);
+            if (!btn) return;
+            const start = (e) => { e.preventDefault(); keysPressed[keyName] = true; };
+            const stop = (e) => { e.preventDefault(); keysPressed[keyName] = false; };
+            btn.addEventListener('mousedown', start);
+            btn.addEventListener('mouseup', stop);
+            btn.addEventListener('mouseleave', stop);
+            btn.addEventListener('touchstart', start);
+            btn.addEventListener('touchend', stop);
+        }
+
+        bindHoldButton('btn-fly-fwd', 'w');
+        bindHoldButton('btn-fly-back', 's');
+        bindHoldButton('btn-fly-left', 'a');
+        bindHoldButton('btn-fly-right', 'd');
+        bindHoldButton('btn-fly-up', 'e');
+        bindHoldButton('btn-fly-down', 'q');
+
+        document.getElementById('btn-center').addEventListener('click', () => {
+            controls.target.set(0, 15, 0);
+            camera.position.set(0, 60, 180);
+            controls.update();
+        });
+
+        // --- Collapsible Control Panel & Drag Handle (Form Constant Style) ---
+        const panel = document.getElementById('control-panel');
+        const dragHandle = document.getElementById('panel-drag-handle');
+        const btnToggleMenu = document.getElementById('btn-toggle-menu');
+        const btnClosePanel = document.getElementById('btn-close-panel');
+        const btnFloatingCenter = document.getElementById('btn-floating-center');
+        const btnFullscreen = document.getElementById('btn-fullscreen');
+
+        function togglePanel(forceState) {
+            if (!panel) return;
+            if (typeof forceState === 'boolean') {
+                if (forceState) panel.classList.add('open');
+                else panel.classList.remove('open');
+            } else {
+                panel.classList.toggle('open');
+            }
+            panel.style.width = '';
+            panel.style.height = '';
+        }
+
+        if (btnToggleMenu) btnToggleMenu.addEventListener('click', (e) => { e.stopPropagation(); togglePanel(); });
+        if (btnClosePanel) btnClosePanel.addEventListener('click', (e) => { e.stopPropagation(); togglePanel(false); });
+        if (btnFloatingCenter) btnFloatingCenter.addEventListener('click', () => {
+            controls.target.set(0, 15, 0);
+            camera.position.set(0, 60, 180);
+            controls.update();
+        });
+        if (btnFullscreen) {
+            btnFullscreen.addEventListener('click', () => {
+                if (!document.fullscreenElement) {
+                    document.documentElement.requestFullscreen().catch(() => {});
+                } else {
+                    document.exitFullscreen().catch(() => {});
+                }
+            });
+        }
+
+        // Resizable & swipeable drag handle
+        let isDragging = false;
+        let startX = 0, startY = 0, startW = 0, startH = 0;
+        let movedDist = 0;
+
+        function isBottomSheet() {
+            return window.innerWidth <= 600 && (window.innerWidth / window.innerHeight) <= (13/15);
+        }
+
+        const onDragStart = (cx, cy) => {
+            isDragging = true;
+            startX = cx;
+            startY = cy;
+            startW = panel.getBoundingClientRect().width;
+            startH = panel.getBoundingClientRect().height;
+            movedDist = 0;
+            if (dragHandle) dragHandle.classList.add('active');
+            document.body.style.userSelect = 'none';
+        };
+
+        const onDragMove = (cx, cy) => {
+            if (!isDragging) return;
+            const dx = cx - startX;
+            const dy = cy - startY;
+            movedDist = Math.max(movedDist, Math.abs(dx) + Math.abs(dy));
+
+            if (isBottomSheet()) {
+                const newH = startH - dy;
+                const clampedH = Math.max(80, Math.min(window.innerHeight * 0.92, newH));
+                panel.style.height = clampedH + 'px';
+                panel.style.width = '';
+                if (!panel.classList.contains('open')) panel.classList.add('open');
+            } else {
+                const newW = startW - dx;
+                const clampedW = Math.max(220, Math.min(window.innerWidth * 0.85, newW));
+                panel.style.width = clampedW + 'px';
+                panel.style.height = '';
+                if (!panel.classList.contains('open')) panel.classList.add('open');
+            }
+        };
+
+        const onDragEnd = () => {
+            if (!isDragging) return;
+            isDragging = false;
+            if (dragHandle) dragHandle.classList.remove('active');
+            document.body.style.userSelect = '';
+            // If it was a quick click/tap without dragging, toggle open/collapse
+            if (movedDist < 6) {
+                togglePanel();
+            }
+        };
+
+        if (dragHandle) {
+            dragHandle.addEventListener('mousedown', (e) => { e.preventDefault(); onDragStart(e.clientX, e.clientY); });
+            window.addEventListener('mousemove', (e) => { if (isDragging) onDragMove(e.clientX, e.clientY); });
+            window.addEventListener('mouseup', () => { if (isDragging) onDragEnd(); });
+
+            dragHandle.addEventListener('touchstart', (e) => { if (e.touches.length === 1) onDragStart(e.touches[0].clientX, e.touches[0].clientY); }, { passive: true });
+            window.addEventListener('touchmove', (e) => { if (isDragging && e.touches.length === 1) onDragMove(e.touches[0].clientX, e.touches[0].clientY); }, { passive: true });
+            window.addEventListener('touchend', () => { if (isDragging) onDragEnd(); });
+        }
+
+        // Trackpad Drag Mode Toggle (Single-finger Drag: ROTATE vs PAN in Orbit Mode)
+        let isPanDragMode = false;
+        const btnDragMode = document.getElementById('btn-drag-mode');
+        btnDragMode.addEventListener('click', () => {
+            isPanDragMode = !isPanDragMode;
+            if (isPanDragMode) {
+                controls.mouseButtons.LEFT = THREE.MOUSE.PAN;
+                controls.mouseButtons.RIGHT = THREE.MOUSE.ROTATE;
+                btnDragMode.textContent = 'Mode: PAN (Click for Rotate)';
+                btnDragMode.style.borderColor = '#00e5ff';
+            } else {
+                controls.mouseButtons.LEFT = THREE.MOUSE.ROTATE;
+                controls.mouseButtons.RIGHT = THREE.MOUSE.PAN;
+                btnDragMode.textContent = 'Mode: ROTATE (Click for Pan)';
+                btnDragMode.style.borderColor = 'rgba(255, 255, 255, 0.15)';
+            }
+        });
+
+        function updateHeatmapUI() {
+            if (colorSelect.value === 'height') {
+                heatmapControlsGroup.style.display = 'block';
+            } else {
+                heatmapControlsGroup.style.display = 'none';
+            }
+            if (heatmapPaletteSelect.value === 'custom') {
+                customHueControls.style.display = 'block';
+            } else {
+                customHueControls.style.display = 'none';
+            }
+        }
+
+        colorSelect.addEventListener('change', () => {
+            updateHeatmapUI();
+            updateRidgelineMesh();
+        });
+
+        heatmapPaletteSelect.addEventListener('change', () => {
+            updateHeatmapUI();
+            updateRidgelineMesh();
+        });
+
+        sliderElevMin.addEventListener('input', (e) => {
+            let minV = parseInt(e.target.value);
+            let maxV = parseInt(sliderElevMax.value);
+            if (minV >= maxV) { minV = maxV - 1; e.target.value = minV; }
+            valElevRange.textContent = `${minV}% - ${maxV}%`;
+            updateRidgelineMesh();
+        });
+
+        sliderElevMax.addEventListener('input', (e) => {
+            let maxV = parseInt(e.target.value);
+            let minV = parseInt(sliderElevMin.value);
+            if (maxV <= minV) { maxV = minV + 1; e.target.value = maxV; }
+            valElevRange.textContent = `${minV}% - ${maxV}%`;
+            updateRidgelineMesh();
+        });
+
+        sliderHueStart.addEventListener('input', (e) => {
+            valHueStart.textContent = parseFloat(e.target.value).toFixed(2);
+            updateRidgelineMesh();
+        });
+
+        sliderHueEnd.addEventListener('input', (e) => {
+            valHueEnd.textContent = parseFloat(e.target.value).toFixed(2);
+            updateRidgelineMesh();
+        });
+
+        btnRotate.addEventListener('click', () => {
+            autoRotate = !autoRotate;
+            controls.autoRotate = autoRotate;
+            controls.autoRotateSpeed = (flightSpeed / 80.0) * 2.0;
+            if (autoRotate) {
+                // Lock rotation center to exact center of 3D landscape model
+                controls.target.set(0, 15, 0);
+                controls.update();
+            }
+            btnRotate.textContent = `Auto-Rotate: ${autoRotate ? 'ON' : 'OFF'}`;
+            btnRotate.style.borderColor = autoRotate ? '#00e5ff' : 'rgba(255, 255, 255, 0.15)';
+        });
+
+        btnExport.addEventListener('click', () => {
+            const isTransparent = exportBgSelect.value === 'transparent';
+            const resChoice = exportResSelect ? exportResSelect.value : '4000';
+            
+            let exportW = 4000;
+            let exportH = 4000;
+            if (resChoice === '5000') { exportW = 5000; exportH = 5000; }
+            else if (resChoice === '3000') { exportW = 3000; exportH = 3000; }
+            else if (resChoice === '2048') { exportW = 2048; exportH = 2048; }
+            else if (resChoice === 'screen') {
+                exportW = Math.floor(window.innerWidth * (window.devicePixelRatio || 1));
+                exportH = Math.floor(window.innerHeight * (window.devicePixelRatio || 1));
+            }
+
+            const origExportText = btnExport.textContent;
+            btnExport.textContent = `Rendering ${exportW}×${exportH}...`;
+            btnExport.disabled = true;
+
+            setTimeout(() => {
+                try {
+                    // Create offscreen canvas and dedicated WebGL renderer for high resolution
+                    const exportCanvas = document.createElement('canvas');
+                    exportCanvas.width = exportW;
+                    exportCanvas.height = exportH;
+
+                    const exportRenderer = new THREE.WebGLRenderer({
+                        canvas: exportCanvas,
+                        alpha: true,
+                        antialias: true,
+                        preserveDrawingBuffer: true,
+                        powerPreference: 'high-performance'
+                    });
+                    exportRenderer.setSize(exportW, exportH, false);
+                    exportRenderer.setPixelRatio(1);
+
+                    // Setup dedicated export camera matching current view perspective
+                    const exportCamera = camera.clone();
+                    exportCamera.aspect = exportW / exportH;
+                    exportCamera.updateProjectionMatrix();
+
+                    // Collect all occluding fill meshes to toggle colorWrite
+                    const fillMeshes = [];
+                    ridgelineGroup.traverse((child) => {
+                        if (child.isMesh && child.isOccluder) {
+                            fillMeshes.push(child);
+                        }
+                    });
+
+                    const prevBg = scene.background;
+                    if (isTransparent) {
+                        scene.background = null;
+                        exportRenderer.setClearColor(0x000000, 0);
+                        fillMeshes.forEach(mesh => {
+                            mesh.material.colorWrite = false;
+                        });
+                    } else {
+                        scene.background = new THREE.Color(0x0a0a0c);
+                        exportRenderer.setClearColor(0x0a0a0c, 1);
+                    }
+
+                    // Render ultra high-res snapshot frame
+                    exportRenderer.render(scene, exportCamera);
+                    const dataURL = exportCanvas.toDataURL('image/png');
+
+                    // Restore live viewport state
+                    if (isTransparent) {
+                        fillMeshes.forEach(mesh => {
+                            mesh.material.colorWrite = true;
+                        });
+                        scene.background = prevBg;
+                    }
+
+                    // Clean up offscreen WebGL context
+                    exportRenderer.dispose();
+
+                    // Construct clean, descriptive filename with resolution
+                    const regionSlug = currentRegion.replace(/_/g, '-');
+                    const modeOptionText = styleSelect.options[styleSelect.selectedIndex].text;
+                    const modeSlug = modeOptionText
+                        .toLowerCase()
+                        .replace(/\(.*?\)/g, '')
+                        .replace(/[^a-z0-9]+/g, '-')
+                        .replace(/^-+|-+$/g, '');
+                    const colorSlug = colorSelect.value;
+                    const isShadedChecked = (checkShaded && checkShaded.checked);
+                    const shadedSlug = isShadedChecked ? `${shadingStyleSelect.value}_` : '';
+                    const exSlug = parseFloat(sliderExaggeration.value).toFixed(1).replace('.', 'p');
+                    const linesSlug = sliderLines.value + 'lines';
+                    const bgSlug = isTransparent ? 'transparent' : 'darkbg';
+                    const resSlug = `${exportW}x${exportH}`;
+
+                    const filename = `${regionSlug}_${modeSlug}_${shadedSlug}${colorSlug}_ex${exSlug}_${linesSlug}_${resSlug}_${bgSlug}.png`;
+
+                    const link = document.createElement('a');
+                    link.download = filename;
+                    link.href = dataURL;
+                    link.click();
+                } catch (err) {
+                    console.error('Export error:', err);
+                    alert('Export failed: ' + err.message);
+                } finally {
+                    btnExport.textContent = origExportText;
+                    btnExport.disabled = false;
+                }
+            }, 50);
+        });
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        // Trackpad Two-Finger Scroll Pan
+        container.addEventListener('wheel', (e) => {
+            if (e.shiftKey || isPanDragMode) {
+                e.preventDefault();
+                const panSpeed = 0.2;
+                const dx = e.deltaX * panSpeed;
+                const dy = e.deltaY * panSpeed;
+
+                const right = new THREE.Vector3();
+                const up = new THREE.Vector3();
+                camera.matrix.extractBasis(right, up, new THREE.Vector3());
+
+                controls.target.addScaledVector(right, dx);
+                controls.target.addScaledVector(up, -dy);
+                camera.position.addScaledVector(right, dx);
+                camera.position.addScaledVector(up, -dy);
+                controls.update();
+            }
+        }, { passive: false });
+
+        // --- 3D Flight Camera Physics Loop ---
+        const clock = new THREE.Clock();
+
+        function updateFlightPhysics() {
+            if (navMode !== 'flight') return;
+            const dt = clock.getDelta();
+            const speed = flightSpeed * dt;
+
+            const forward = new THREE.Vector3();
+            camera.getWorldDirection(forward);
+            // Project forward vector onto horizontal XZ plane so eye height stays 100% constant when flying forward/backward
+            forward.y = 0;
+            if (forward.lengthSq() > 0.0001) forward.normalize();
+            else forward.set(0, 0, -1);
+
+            const right = new THREE.Vector3();
+            right.crossVectors(forward, camera.up).normalize();
+
+            let moved = false;
+
+            // Turn view direction left / right (Yaw) with Left / Right Arrow keys
+            const turnRate = 1.6 * dt;
+            if (keysPressed['arrowleft']) {
+                const offset = new THREE.Vector3().subVectors(controls.target, camera.position);
+                offset.applyAxisAngle(new THREE.Vector3(0, 1, 0), turnRate);
+                controls.target.copy(camera.position).add(offset);
+                moved = true;
+            }
+            if (keysPressed['arrowright']) {
+                const offset = new THREE.Vector3().subVectors(controls.target, camera.position);
+                offset.applyAxisAngle(new THREE.Vector3(0, 1, 0), -turnRate);
+                controls.target.copy(camera.position).add(offset);
+                moved = true;
+            }
+
+            // Fly Forward / Backward
+            if (keysPressed['w'] || keysPressed['arrowup']) {
+                camera.position.addScaledVector(forward, speed);
+                controls.target.addScaledVector(forward, speed);
+                moved = true;
+            }
+            if (keysPressed['s'] || keysPressed['arrowdown']) {
+                camera.position.addScaledVector(forward, -speed);
+                controls.target.addScaledVector(forward, -speed);
+                moved = true;
+            }
+
+            // Strafe Left / Right with A / D keys
+            if (keysPressed['a']) {
+                camera.position.addScaledVector(right, -speed);
+                controls.target.addScaledVector(right, -speed);
+                moved = true;
+            }
+            if (keysPressed['d']) {
+                camera.position.addScaledVector(right, speed);
+                controls.target.addScaledVector(right, speed);
+                moved = true;
+            }
+
+            // Climb / Descend with E / Q keys
+            if (keysPressed['e']) {
+                camera.position.y += speed;
+                controls.target.y += speed;
+                moved = true;
+            }
+            if (keysPressed['q']) {
+                camera.position.y -= speed;
+                controls.target.y -= speed;
+                moved = true;
+            }
+
+            if (moved) {
+                controls.update();
+            }
+        }
+
+        // Initial Build & Animation Loop
+        updateRidgelineMesh();
+
+        function animate() {
+            requestAnimationFrame(animate);
+            if (autoRotate) {
+                controls.target.set(0, 15, 0);
+            }
+            updateFlightPhysics();
+            controls.update();
+            renderer.render(scene, camera);
+        }
+        animate();
+    </script>
+</body>
+</html>
