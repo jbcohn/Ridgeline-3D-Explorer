@@ -600,7 +600,8 @@
                                 • <b>S / ↓</b>: Fly Backward<br>
                                 • <b>A / D</b>: Strafe Left / Right<br>
                                 • <b>E / Q</b>: Climb / Descend<br>
-                                • <b>← / →</b>: Turn View Direction<br>
+                                • <b>← / →</b>: Turn Left / Right (Yaw)<br>
+                                • <b>Shift + ↑ / ↓</b>: Look Up / Down (Pitch)<br>
                                 • <b>Mouse Drag</b>: Look Around<br>
                                 • <b>Shift + Drag</b>: Pan View
                             </div>
@@ -1866,9 +1867,11 @@
                 }
             }
             keysPressed[e.key.toLowerCase()] = true;
+            keysPressed['shift'] = e.shiftKey;
         });
         window.addEventListener('keyup', (e) => {
             keysPressed[e.key.toLowerCase()] = false;
+            keysPressed['shift'] = e.shiftKey;
         });
 
         // --- Collapsible Control Panel & Responsive Canvas Layout ---
@@ -2280,13 +2283,39 @@
                 moved = true;
             }
 
-            // Fly Forward / Backward
-            if (keysPressed['w'] || keysPressed['arrowup']) {
+            // Look Up / Down (Pitch) with Shift + Up/Down (or Shift + W/S, or R/F) without changing eye position
+            const pitchRate = 1.5 * dt;
+            const isPitchUp = (keysPressed['shift'] && (keysPressed['arrowup'] || keysPressed['w'])) || keysPressed['r'];
+            const isPitchDown = (keysPressed['shift'] && (keysPressed['arrowdown'] || keysPressed['s'])) || keysPressed['f'];
+
+            if (isPitchUp) {
+                const offset = new THREE.Vector3().subVectors(controls.target, camera.position);
+                const testOffset = offset.clone().applyAxisAngle(right, pitchRate);
+                // Prevent flipping past vertical zenith (stay > 0.08 rad from +Y)
+                if (testOffset.angleTo(new THREE.Vector3(0, 1, 0)) > 0.08) {
+                    controls.target.copy(camera.position).add(testOffset);
+                    moved = true;
+                }
+            } else if (isPitchDown) {
+                const offset = new THREE.Vector3().subVectors(controls.target, camera.position);
+                const testOffset = offset.clone().applyAxisAngle(right, -pitchRate);
+                // Prevent flipping past vertical nadir (stay > 0.08 rad from -Y)
+                if (testOffset.angleTo(new THREE.Vector3(0, -1, 0)) > 0.08) {
+                    controls.target.copy(camera.position).add(testOffset);
+                    moved = true;
+                }
+            }
+
+            // Fly Forward / Backward (only when NOT pitch-looking with Shift)
+            const isFlyFwd = (!keysPressed['shift'] && keysPressed['arrowup']) || (keysPressed['w'] && !keysPressed['shift']);
+            const isFlyBack = (!keysPressed['shift'] && keysPressed['arrowdown']) || (keysPressed['s'] && !keysPressed['shift']);
+
+            if (isFlyFwd) {
                 camera.position.addScaledVector(forward, speed);
                 controls.target.addScaledVector(forward, speed);
                 moved = true;
             }
-            if (keysPressed['s'] || keysPressed['arrowdown']) {
+            if (isFlyBack) {
                 camera.position.addScaledVector(forward, -speed);
                 controls.target.addScaledVector(forward, -speed);
                 moved = true;
