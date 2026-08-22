@@ -16,7 +16,6 @@
             margin: 0;
             padding: 0;
             -webkit-tap-highlight-color: transparent;
-            user-select: none;
         }
         html, body {
             font-family: 'Outfit', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
@@ -25,6 +24,8 @@
             overflow: hidden;
             height: 100%;
             width: 100%;
+            user-select: none;
+            -webkit-user-select: none;
         }
         #app-container {
             display: flex;
@@ -180,6 +181,8 @@
             gap: 10px;
             scrollbar-width: thin;
             scrollbar-color: #475569 #0f172a;
+            touch-action: pan-y;
+            -webkit-overflow-scrolling: touch;
         }
         #panel-scroll::-webkit-scrollbar {
             width: 5px;
@@ -288,8 +291,12 @@
             font-weight: 600;
             font-size: 0.75rem;
         }
-        select, button, input[type="range"] {
+        select, button, input[type="range"], input[type="checkbox"] {
             font-family: inherit;
+            user-select: auto;
+            -webkit-user-select: auto;
+            pointer-events: auto;
+            touch-action: manipulation;
         }
         select {
             width: 100%;
@@ -297,12 +304,12 @@
             border: 1px solid #334155;
             border-radius: 6px;
             color: #f8fafc;
-            font-size: 0.78rem;
+            font-size: 0.8rem;
             font-weight: 500;
-            padding: 6px 10px;
+            padding: 7px 10px;
             outline: none;
             cursor: pointer;
-            transition: all 0.2s;
+            transition: border-color 0.2s, background-color 0.2s;
             -webkit-appearance: none;
             appearance: none;
             background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
@@ -311,7 +318,7 @@
             background-size: 14px;
             padding-right: 26px;
         }
-        select:focus, select:hover {
+        select:focus, select:hover, select:active {
             border-color: #38bdf8;
             background-color: #0f172a;
         }
@@ -377,7 +384,31 @@
             transform: translateY(-1px);
         }
 
-        /* Responsive Mobile Bottom Sheet */
+        /* Responsive Mobile Bottom Sheet & Touch Target Enhancements */
+        @media (max-width: 600px) {
+            select {
+                font-size: 16px !important; /* iOS Safari ignores auto-zoom when >= 16px */
+                min-height: 42px;
+                padding: 8px 12px;
+                border-radius: 8px;
+            }
+            button {
+                font-size: 14px;
+                min-height: 40px;
+                border-radius: 8px;
+            }
+            input[type="range"] {
+                height: 8px;
+            }
+            input[type="range"]::-webkit-slider-thumb {
+                width: 22px;
+                height: 22px;
+            }
+            #panel-scroll {
+                padding: 12px 14px 32px 14px;
+            }
+        }
+
         @media (max-width: 600px) and (max-aspect-ratio: 13/15) {
             #control-panel {
                 left: 0;
@@ -1817,11 +1848,13 @@
             controls.autoRotateSpeed = (flightSpeed / 80.0) * 2.0;
         });
 
-        // Automatically blur UI controls after interaction so Arrow keys always control 3D flight
-        document.querySelectorAll('input, select, button').forEach(el => {
-            el.addEventListener('change', () => el.blur());
-            el.addEventListener('mouseup', () => el.blur());
-            el.addEventListener('touchend', () => el.blur());
+        // Blur controls after change only on desktop with mouse so keyboard arrows control flight
+        document.querySelectorAll('select, button').forEach(el => {
+            el.addEventListener('change', () => {
+                if (window.matchMedia && window.matchMedia('(hover: hover) and (pointer: fine)').matches) {
+                    el.blur();
+                }
+            });
         });
 
         // Keyboard WASD & Arrow Key Flight Listeners
