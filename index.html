@@ -1871,13 +1871,78 @@
             keysPressed[e.key.toLowerCase()] = false;
         });
 
-        // --- Collapsible Control Panel & Drag Handle (Form Constant Style) ---
+        // --- Collapsible Control Panel & Responsive Canvas Layout ---
+        const canvasContainer = document.getElementById('canvas-container');
         const panel = document.getElementById('control-panel');
         const dragHandle = document.getElementById('panel-drag-handle');
         const btnToggleMenu = document.getElementById('btn-toggle-menu');
         const btnClosePanel = document.getElementById('btn-close-panel');
         const btnFloatingCenter = document.getElementById('btn-floating-center');
         const btnFullscreen = document.getElementById('btn-fullscreen');
+
+        function isBottomSheet() {
+            return window.innerHeight > window.innerWidth || (window.innerWidth <= 600 && (window.innerWidth / window.innerHeight) <= (13/15));
+        }
+
+        function updateLayoutAndCanvas() {
+            const W = window.innerWidth;
+            const H = window.innerHeight;
+            const isPortrait = isBottomSheet();
+
+            if (isPortrait) {
+                let menuH = 0;
+                if (panel.classList.contains('open')) {
+                    menuH = panel.getBoundingClientRect().height;
+                } else {
+                    menuH = 14;
+                }
+                
+                const availableH = H - menuH;
+                // If available height >= W, canvas height fits cleanly in the top region without any overlap.
+                // Once remaining height < W (i.e. reduced down to a square), canvas locks at square (W)
+                // and the menu covers the bottom portion of that square area.
+                const targetCanvasH = Math.min(H, Math.max(W, availableH));
+                
+                canvasContainer.style.width = W + 'px';
+                canvasContainer.style.height = targetCanvasH + 'px';
+                canvasContainer.style.position = 'absolute';
+                canvasContainer.style.top = '0px';
+                canvasContainer.style.left = '0px';
+
+                camera.aspect = W / targetCanvasH;
+                camera.updateProjectionMatrix();
+                renderer.setSize(W, targetCanvasH);
+            } else {
+                canvasContainer.style.width = '';
+                canvasContainer.style.height = '';
+                canvasContainer.style.position = '';
+                canvasContainer.style.top = '';
+                canvasContainer.style.left = '';
+
+                const renderW = canvasContainer.clientWidth || W;
+                const renderH = canvasContainer.clientHeight || H;
+                camera.aspect = renderW / renderH;
+                camera.updateProjectionMatrix();
+                renderer.setSize(renderW, renderH);
+            }
+        }
+
+        let transitionAnimId = null;
+        function animateLayoutTransition() {
+            if (transitionAnimId) cancelAnimationFrame(transitionAnimId);
+            const start = performance.now();
+            const duration = 380;
+            function step(now) {
+                updateLayoutAndCanvas();
+                if (now - start < duration) {
+                    transitionAnimId = requestAnimationFrame(step);
+                } else {
+                    updateLayoutAndCanvas();
+                    transitionAnimId = null;
+                }
+            }
+            transitionAnimId = requestAnimationFrame(step);
+        }
 
         function togglePanel(forceState) {
             if (!panel) return;
@@ -1889,6 +1954,7 @@
             }
             panel.style.width = '';
             panel.style.height = '';
+            animateLayoutTransition();
         }
 
         if (btnToggleMenu) btnToggleMenu.addEventListener('click', (e) => { e.stopPropagation(); togglePanel(); });
@@ -1913,10 +1979,6 @@
         let startX = 0, startY = 0, startW = 0, startH = 0;
         let movedDist = 0;
 
-        function isBottomSheet() {
-            return window.innerWidth <= 600 && (window.innerWidth / window.innerHeight) <= (13/15);
-        }
-
         const onDragStart = (cx, cy) => {
             isDragging = true;
             startX = cx;
@@ -1940,12 +2002,14 @@
                 panel.style.height = clampedH + 'px';
                 panel.style.width = '';
                 if (!panel.classList.contains('open')) panel.classList.add('open');
+                updateLayoutAndCanvas();
             } else {
                 const newW = startW - dx;
                 const clampedW = Math.max(220, Math.min(window.innerWidth * 0.85, newW));
                 panel.style.width = clampedW + 'px';
                 panel.style.height = '';
                 if (!panel.classList.contains('open')) panel.classList.add('open');
+                updateLayoutAndCanvas();
             }
         };
 
@@ -1957,6 +2021,8 @@
             // If it was a quick click/tap without dragging, toggle open/collapse
             if (movedDist < 6) {
                 togglePanel();
+            } else {
+                updateLayoutAndCanvas();
             }
         };
 
@@ -2157,11 +2223,7 @@
             }, 50);
         });
 
-        window.addEventListener('resize', () => {
-            camera.aspect = window.innerWidth / window.innerHeight;
-            camera.updateProjectionMatrix();
-            renderer.setSize(window.innerWidth, window.innerHeight);
-        });
+        window.addEventListener('resize', updateLayoutAndCanvas);
 
         // Trackpad Two-Finger Scroll Pan
         container.addEventListener('wheel', (e) => {
@@ -2259,8 +2321,9 @@
             }
         }
 
-        // Initial Build & Animation Loop
+        // Initial Build & Layout Initialization
         updateRidgelineMesh();
+        updateLayoutAndCanvas();
 
         function animate() {
             requestAnimationFrame(animate);
