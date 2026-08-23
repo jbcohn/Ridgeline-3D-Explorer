@@ -544,11 +544,17 @@
                         </div>
                     </div>
 
-                    <div class="ui-group" style="padding: 2px 0;">
-                        <label for="check-shaded" class="ui-label" style="margin: 0; cursor: pointer; display: flex; align-items: center; justify-content: space-between;">
-                            <span>Shaded 3D Surface</span>
-                            <input type="checkbox" id="check-shaded" checked style="width: 16px; height: 16px; cursor: pointer; accent-color: #38bdf8;">
-                        </label>
+                    <div class="grid-2col" style="align-items: center;">
+                        <div class="ui-group">
+                            <div class="ui-label">Line Width <span id="val-linewidth" class="ui-value">1.5px</span></div>
+                            <input type="range" id="slider-linewidth" min="0.5" max="5.0" step="0.1" value="1.5">
+                        </div>
+                        <div class="ui-group" style="padding-top: 14px;">
+                            <label for="check-shaded" class="ui-label" style="margin: 0; cursor: pointer; display: flex; align-items: center; justify-content: space-between;">
+                                <span>Shaded 3D Surface</span>
+                                <input type="checkbox" id="check-shaded" checked style="width: 16px; height: 16px; cursor: pointer; accent-color: #38bdf8;">
+                            </label>
+                        </div>
                     </div>
 
                     <div id="shading-style-group" class="ui-group" style="display: block; border-left: 3px solid #38bdf8; padding-left: 8px; margin-left: 2px;">
@@ -703,6 +709,8 @@
         const checkShaded = document.getElementById('check-shaded');
         const shadingStyleGroup = document.getElementById('shading-style-group');
         const shadingStyleSelect = document.getElementById('shading-style-select');
+        const sliderLineWidth = document.getElementById('slider-linewidth');
+        const valLineWidth = document.getElementById('val-linewidth');
         const sliderExaggeration = document.getElementById('slider-exaggeration');
         const valExaggeration = document.getElementById('val-exaggeration');
         const sliderLines = document.getElementById('slider-lines');
@@ -1056,6 +1064,8 @@
 
             const heightScale = (width / realWidthM) * exaggeration;
 
+            const lineWidthVal = sliderLineWidth ? (parseFloat(sliderLineWidth.value) || 1.5) : 1.5;
+
             // Multi-stop color interpolation helper
             function interpolateColors(c0, c1, t) {
                 const col0 = new THREE.Color(c0);
@@ -1114,7 +1124,6 @@
                         c.setHSL(hue, 0.95, finalL);
                         return c;
                     } else if (palette === 'turbo') {
-                        // Full Spectrum continuous Rainbow (Blue 0.65 -> Cyan 0.50 -> Green 0.33 -> Yellow 0.16 -> Orange 0.08 -> Red 0.00)
                         const hue = (1.0 - clampedRatio) * 0.65;
                         const c = new THREE.Color();
                         const baseL = 0.54;
@@ -1177,6 +1186,249 @@
 
             // Fixed sun direction for true directional 3D relief
             const sunDir = new THREE.Vector3(0.36, 0.87, 0.36).normalize();
+
+            // Helper: Create Barycentric Wireframe Shader Material
+            function createBarycentricMaterial(isShaded, shadingStyle, sunDir, lw) {
+                const shadingMode = (isShaded && shadingStyle === 'smooth') ? 1.0 : ((isShaded && shadingStyle === 'faceted') ? 2.0 : 0.0);
+                return new THREE.ShaderMaterial({
+                    uniforms: {
+                        uLineWidth: { value: lw },
+                        uLineColor: { value: isShaded ? new THREE.Color(0x000000) : new THREE.Color(0xffffff) },
+                        uLineOpacity: { value: isShaded ? 0.38 : 1.0 },
+                        uIsShaded: { value: isShaded ? 1.0 : 0.0 },
+                        uUseVertexLineColor: { value: isShaded ? 0.0 : 1.0 },
+                        uBgColor: { value: new THREE.Color(0x0a0a0c) },
+                        uTransparentBg: { value: 0.0 },
+                        uShadingMode: { value: shadingMode },
+                        uLightDir: { value: sunDir.clone() }
+                    },
+                    vertexShader: `
+                        attribute vec3 aBarycentric;
+                        attribute vec3 color;
+                        varying vec3 vColor;
+                        varying vec3 vBarycentric;
+                        varying vec3 vNormal;
+
+                        void main() {
+                            vColor = color;
+                            vBarycentric = aBarycentric;
+                            vNormal = normalize(normalMatrix * normal);
+                            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+                        }
+                    `,
+                    fragmentShader: `
+                        varying vec3 vColor;
+                        varying vec3 vBarycentric;
+                        varying vec3 vNormal;
+
+                        uniform float uLineWidth;
+                        uniform vec3 uLineColor;
+                        uniform float uLineOpacity;
+                        uniform float uIsShaded;
+                        uniform float uUseVertexLineColor;
+                        uniform vec3 uBgColor;
+                        uniform float uTransparentBg;
+                        uniform float uShadingMode;
+                        uniform vec3 uLightDir;
+
+                        void main() {
+                            vec3 baseColor = vColor;
+                            if (uIsShaded > 0.5) {
+                                if (uShadingMode == 1.0 || uShadingMode == 2.0) {
+                                    vec3 N = normalize(vNormal);
+                                    float diff = max(0.0, dot(N, uLightDir));
+                                    baseColor *= (0.70 + 0.30 * diff);
+                                }
+                            }
+
+                            // Compute screen-space anti-aliased wireframe width
+                            vec3 d = fwidth(vBarycentric);
+                            vec3 a3 = smoothstep(vec3(0.0), d * uLineWidth, vBarycentric);
+                            float edgeFactor = min(min(a3.x, a3.y), a3.z);
+                            float lineAlpha = clamp((1.0 - edgeFactor) * uLineOpacity, 0.0, 1.0);
+
+                            if (uIsShaded > 0.5) {
+                                vec3 finalCol = mix(baseColor, uLineColor, lineAlpha);
+                                gl_FragColor = vec4(finalCol, 1.0);
+                            } else {
+                                vec3 strokeColor = (uUseVertexLineColor > 0.5) ? vColor : uLineColor;
+                                if (uTransparentBg > 0.5) {
+                                    if (lineAlpha < 0.02) discard;
+                                    gl_FragColor = vec4(strokeColor, lineAlpha);
+                                } else {
+                                    vec3 finalCol = mix(uBgColor, strokeColor, lineAlpha);
+                                    gl_FragColor = vec4(finalCol, 1.0);
+                                }
+                            }
+                        }
+                    `,
+                    side: THREE.DoubleSide,
+                    transparent: true,
+                    polygonOffset: true,
+                    polygonOffsetFactor: 1,
+                    polygonOffsetUnits: 1
+                });
+            }
+
+            // Helper: Build Barycentric Mesh from Triangles
+            function buildBarycentricMesh(indices, positions, colors, rawPoints, isShaded, shadingStyle, sunDir, grid, rows, cols, maxElev, heightScale, lw) {
+                const nonIndexedPos = [];
+                const nonIndexedCol = [];
+                const barycentric = [];
+
+                for (let i = 0; i < indices.length; i += 3) {
+                    const i0 = indices[i], i1 = indices[i + 1], i2 = indices[i + 2];
+                    const p0 = new THREE.Vector3(positions[i0*3], positions[i0*3+1], positions[i0*3+2]);
+                    const p1 = new THREE.Vector3(positions[i1*3], positions[i1*3+1], positions[i1*3+2]);
+                    const p2 = new THREE.Vector3(positions[i2*3], positions[i2*3+1], positions[i2*3+2]);
+
+                    nonIndexedPos.push(p0.x, p0.y, p0.z, p1.x, p1.y, p1.z, p2.x, p2.y, p2.z);
+
+                    if (isShaded && shadingStyle === 'hsl_relief') {
+                        const cb = new THREE.Vector3().subVectors(p2, p1);
+                        const ab = new THREE.Vector3().subVectors(p0, p1);
+                        const norm = new THREE.Vector3().crossVectors(cb, ab).normalize();
+                        const dot = Math.max(0, norm.dot(sunDir));
+                        const lightMult = 0.72 + 0.38 * dot;
+
+                        function getPtCol(idx, pt) {
+                            const elevVal = rawPoints ? sampleDEM(grid, rows, cols, rawPoints[idx*2], rawPoints[idx*2+1]) : (pt.y / heightScale);
+                            const hRatio = Math.min(1.0, Math.max(0.0, elevVal / maxElev));
+                            return getColor(hRatio, lightMult);
+                        }
+                        const c0 = getPtCol(i0, p0);
+                        const c1 = getPtCol(i1, p1);
+                        const c2 = getPtCol(i2, p2);
+                        nonIndexedCol.push(c0.r, c0.g, c0.b, c1.r, c1.g, c1.b, c2.r, c2.g, c2.b);
+                    } else {
+                        nonIndexedCol.push(
+                            colors[i0*3], colors[i0*3+1], colors[i0*3+2],
+                            colors[i1*3], colors[i1*3+1], colors[i1*3+2],
+                            colors[i2*3], colors[i2*3+1], colors[i2*3+2]
+                        );
+                    }
+
+                    barycentric.push(1, 0, 0, 0, 1, 0, 0, 0, 1);
+                }
+
+                const geo = new THREE.BufferGeometry();
+                geo.setAttribute('position', new THREE.Float32BufferAttribute(nonIndexedPos, 3));
+                geo.setAttribute('color', new THREE.Float32BufferAttribute(nonIndexedCol, 3));
+                geo.setAttribute('aBarycentric', new THREE.Float32BufferAttribute(barycentric, 3));
+                geo.computeVertexNormals();
+
+                const mat = createBarycentricMaterial(isShaded, shadingStyle, sunDir, lw);
+                const mesh = new THREE.Mesh(geo, mat);
+                mesh.isShadedSurface = true;
+                return mesh;
+            }
+
+            // Helper: Screen-space Ribbon Shader for Stacked Ridgelines
+            function createRibbonMaterial(lw) {
+                const activeCanvas = renderer ? renderer.domElement : { clientWidth: window.innerWidth, clientHeight: window.innerHeight };
+                const curW = activeCanvas.clientWidth || window.innerWidth;
+                const curH = activeCanvas.clientHeight || window.innerHeight;
+
+                return new THREE.ShaderMaterial({
+                    uniforms: {
+                        uLineWidth: { value: lw },
+                        uResolution: { value: new THREE.Vector2(curW, curH) }
+                    },
+                    vertexShader: `
+                        attribute vec3 color;
+                        attribute vec3 aPrev;
+                        attribute vec3 aNext;
+                        attribute float aSide;
+
+                        uniform float uLineWidth;
+                        uniform vec2 uResolution;
+                        varying vec3 vColor;
+
+                        void main() {
+                            vColor = color;
+                            vec4 currentClip = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+                            vec4 nextClip = projectionMatrix * modelViewMatrix * vec4(aNext, 1.0);
+                            vec4 prevClip = projectionMatrix * modelViewMatrix * vec4(aPrev, 1.0);
+
+                            vec2 currentScreen = currentClip.xy / currentClip.w;
+                            vec2 nextScreen = nextClip.xy / nextClip.w;
+                            vec2 prevScreen = prevClip.xy / prevClip.w;
+
+                            vec2 dir = normalize(nextScreen - prevScreen);
+                            if (length(dir) < 0.0001) {
+                                dir = normalize(nextScreen - currentScreen);
+                            }
+                            if (length(dir) < 0.0001) {
+                                dir = vec2(1.0, 0.0);
+                            }
+
+                            vec2 normal = vec2(-dir.y, dir.x);
+                            vec2 offset = normal * (uLineWidth / uResolution) * aSide;
+                            currentClip.xy += offset * currentClip.w;
+
+                            gl_Position = currentClip;
+                        }
+                    `,
+                    fragmentShader: `
+                        varying vec3 vColor;
+                        void main() {
+                            gl_FragColor = vec4(vColor, 1.0);
+                        }
+                    `,
+                    side: THREE.DoubleSide,
+                    transparent: false
+                });
+            }
+
+            function buildRibbonGeometry(pts, cols) {
+                const pos = [];
+                const colArr = [];
+                const prevArr = [];
+                const nextArr = [];
+                const sideArr = [];
+                const idx = [];
+
+                const n = pts.length;
+                for (let i = 0; i < n; i++) {
+                    const p = pts[i];
+                    const c = cols[i];
+                    const pPrev = (i > 0) ? pts[i - 1] : p;
+                    const pNext = (i < n - 1) ? pts[i + 1] : p;
+
+                    // Vertex side +1
+                    pos.push(p.x, p.y, p.z);
+                    colArr.push(c.r, c.g, c.b);
+                    prevArr.push(pPrev.x, pPrev.y, pPrev.z);
+                    nextArr.push(pNext.x, pNext.y, pNext.z);
+                    sideArr.push(1.0);
+
+                    // Vertex side -1
+                    pos.push(p.x, p.y, p.z);
+                    colArr.push(c.r, c.g, c.b);
+                    prevArr.push(pPrev.x, pPrev.y, pPrev.z);
+                    nextArr.push(pNext.x, pNext.y, pNext.z);
+                    sideArr.push(-1.0);
+                }
+
+                for (let i = 0; i < n - 1; i++) {
+                    const i0 = i * 2;
+                    const i1 = i * 2 + 1;
+                    const i2 = (i + 1) * 2;
+                    const i3 = (i + 1) * 2 + 1;
+
+                    idx.push(i0, i1, i2);
+                    idx.push(i2, i1, i3);
+                }
+
+                const geo = new THREE.BufferGeometry();
+                geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+                geo.setAttribute('color', new THREE.Float32BufferAttribute(colArr, 3));
+                geo.setAttribute('aPrev', new THREE.Float32BufferAttribute(prevArr, 3));
+                geo.setAttribute('aNext', new THREE.Float32BufferAttribute(nextArr, 3));
+                geo.setAttribute('aSide', new THREE.Float32BufferAttribute(sideArr, 1));
+                geo.setIndex(idx);
+                return geo;
+            }
 
             if (renderStyle === 'fe_gradual') {
                 // --- Quality Adaptive Delaunay TIN Mesh (Chew's Second Algorithm + Spatial Poisson Rejection) ---
@@ -1340,141 +1592,12 @@
 
                 const indices = Array.from(delaunay.triangles);
 
-                const geom = new THREE.BufferGeometry();
-                geom.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-                geom.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
-                geom.setIndex(indices);
-                geom.computeVertexNormals();
+                // Build Adaptive Mesh with Barycentric Wireframe Shader
+                const adaptiveMesh = buildBarycentricMesh(indices, positions, colors, rawPoints, isShaded, shadingStyle, sunDir, grid, rows, cols, maxElev, heightScale, lineWidthVal);
+                ridgelineGroup.add(adaptiveMesh);
 
-                // Direct line segments with exact per-vertex elevation colors
-                const linePositions = [];
-                const lineColors = [];
-                for (let i = 0; i < indices.length; i += 3) {
-                    const i0 = indices[i];
-                    const i1 = indices[i + 1];
-                    const i2 = indices[i + 2];
-
-                    function addLineEdge(idxA, idxB) {
-                        linePositions.push(positions[idxA * 3], positions[idxA * 3 + 1], positions[idxA * 3 + 2]);
-                        linePositions.push(positions[idxB * 3], positions[idxB * 3 + 1], positions[idxB * 3 + 2]);
-                        lineColors.push(colors[idxA * 3], colors[idxA * 3 + 1], colors[idxA * 3 + 2]);
-                        lineColors.push(colors[idxB * 3], colors[idxB * 3 + 1], colors[idxB * 3 + 2]);
-                    }
-                    addLineEdge(i0, i1);
-                    addLineEdge(i1, i2);
-                    addLineEdge(i2, i0);
-                }
-
-                if (isShaded) {
-                    if (shadingStyle === 'hsl_relief') {
-                        // True HSL Lightness Shading: calculates slope relief without shifting hue or desaturating colors
-                        const facetedPos = [];
-                        const facetedCol = [];
-                        for (let i = 0; i < indices.length; i += 3) {
-                            const i0 = indices[i], i1 = indices[i + 1], i2 = indices[i + 2];
-                            const p0 = new THREE.Vector3(positions[i0*3], positions[i0*3+1], positions[i0*3+2]);
-                            const p1 = new THREE.Vector3(positions[i1*3], positions[i1*3+1], positions[i1*3+2]);
-                            const p2 = new THREE.Vector3(positions[i2*3], positions[i2*3+1], positions[i2*3+2]);
-
-                            const cb = new THREE.Vector3().subVectors(p2, p1);
-                            const ab = new THREE.Vector3().subVectors(p0, p1);
-                            const norm = new THREE.Vector3().crossVectors(cb, ab).normalize();
-                            const dot = Math.max(0, norm.dot(sunDir));
-                            const lightMult = 0.72 + 0.38 * dot;
-
-                            function pushFacetedPt(idx, pt) {
-                                facetedPos.push(pt.x, pt.y, pt.z);
-                                const elevVal = sampleDEM(grid, rows, cols, rawPoints[idx*2], rawPoints[idx*2+1]);
-                                const hRatio = Math.min(1.0, Math.max(0.0, elevVal / maxElev));
-                                const c = getColor(hRatio, lightMult);
-                                facetedCol.push(c.r, c.g, c.b);
-                            }
-                            pushFacetedPt(i0, p0); pushFacetedPt(i1, p1); pushFacetedPt(i2, p2);
-                        }
-                        const facetedGeo = new THREE.BufferGeometry();
-                        facetedGeo.setAttribute('position', new THREE.Float32BufferAttribute(facetedPos, 3));
-                        facetedGeo.setAttribute('color', new THREE.Float32BufferAttribute(facetedCol, 3));
-                        facetedGeo.computeVertexNormals();
-
-                        const surfaceMat = new THREE.MeshBasicMaterial({
-                            vertexColors: true,
-                            side: THREE.DoubleSide,
-                            polygonOffset: true,
-                            polygonOffsetFactor: 1,
-                            polygonOffsetUnits: 1
-                        });
-                        const surfaceMesh = new THREE.Mesh(facetedGeo, surfaceMat);
-                        surfaceMesh.isShadedSurface = true;
-                        ridgelineGroup.add(surfaceMesh);
-                    } else if (shadingStyle === 'unlit') {
-                        const surfaceMat = new THREE.MeshBasicMaterial({
-                            vertexColors: true,
-                            side: THREE.DoubleSide,
-                            polygonOffset: true,
-                            polygonOffsetFactor: 1,
-                            polygonOffsetUnits: 1
-                        });
-                        const surfaceMesh = new THREE.Mesh(geom, surfaceMat);
-                        surfaceMesh.isShadedSurface = true;
-                        ridgelineGroup.add(surfaceMesh);
-                    } else if (shadingStyle === 'smooth') {
-                        const surfaceMat = new THREE.MeshPhongMaterial({
-                            vertexColors: true,
-                            side: THREE.DoubleSide,
-                            flatShading: false,
-                            shininess: 0,
-                            polygonOffset: true,
-                            polygonOffsetFactor: 1,
-                            polygonOffsetUnits: 1
-                        });
-                        const surfaceMesh = new THREE.Mesh(geom, surfaceMat);
-                        surfaceMesh.isShadedSurface = true;
-                        ridgelineGroup.add(surfaceMesh);
-                    } else {
-                        const surfaceMat = new THREE.MeshPhongMaterial({
-                            vertexColors: true,
-                            side: THREE.DoubleSide,
-                            flatShading: true,
-                            shininess: 15,
-                            polygonOffset: true,
-                            polygonOffsetFactor: 1,
-                            polygonOffsetUnits: 1
-                        });
-                        const surfaceMesh = new THREE.Mesh(geom, surfaceMat);
-                        surfaceMesh.isShadedSurface = true;
-                        ridgelineGroup.add(surfaceMesh);
-                    }
-
-                    // Subtle wireframe overlay
-                    const lineGeo = new THREE.BufferGeometry();
-                    lineGeo.setAttribute('position', new THREE.Float32BufferAttribute(linePositions, 3));
-                    const lineMat = new THREE.LineBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.35, linewidth: 1.5 });
-                    const lineMesh = new THREE.LineSegments(lineGeo, lineMat);
-                    ridgelineGroup.add(lineMesh);
-                } else {
-                    // Occluding base surface for clean line art depth
-                    const fillMat = new THREE.MeshBasicMaterial({
-                        color: 0x0a0a0c,
-                        side: THREE.DoubleSide,
-                        polygonOffset: true,
-                        polygonOffsetFactor: 1,
-                        polygonOffsetUnits: 1
-                    });
-                    const fillMesh = new THREE.Mesh(geom, fillMat);
-                    fillMesh.isOccluder = true;
-                    ridgelineGroup.add(fillMesh);
-
-                    // Full color wireframe lines
-                    const lineGeo = new THREE.BufferGeometry();
-                    lineGeo.setAttribute('position', new THREE.Float32BufferAttribute(linePositions, 3));
-                    lineGeo.setAttribute('color', new THREE.Float32BufferAttribute(lineColors, 3));
-                    const lineMat = new THREE.LineBasicMaterial({ vertexColors: true, linewidth: 2.0 });
-                    const lineMesh = new THREE.LineSegments(lineGeo, lineMat);
-                    ridgelineGroup.add(lineMesh);
-                }
             } else if (renderStyle === 'fe_wireframe') {
                 // --- Uniform Finite Element (FE) Tessellated 3D Grid ---
-                const geom = new THREE.BufferGeometry();
                 const positions = [];
                 const colors = [];
                 const indices = [];
@@ -1527,133 +1650,13 @@
                     }
                 }
 
-                geom.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-                geom.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
-                geom.setIndex(indices);
-                geom.computeVertexNormals();
+                // Build Uniform Grid with Barycentric Wireframe Shader
+                const uniformMesh = buildBarycentricMesh(indices, positions, colors, null, isShaded, shadingStyle, sunDir, grid, rows, cols, maxElev, heightScale, lineWidthVal);
+                ridgelineGroup.add(uniformMesh);
 
-                // Direct line segment wireframe
-                const linePositions = [];
-                const lineColors = [];
-                for (let i = 0; i < indices.length; i += 3) {
-                    const i0 = indices[i], i1 = indices[i + 1], i2 = indices[i + 2];
-                    function addLineEdge(a, b) {
-                        linePositions.push(positions[a * 3], positions[a * 3 + 1], positions[a * 3 + 2]);
-                        linePositions.push(positions[b * 3], positions[b * 3 + 1], positions[b * 3 + 2]);
-                        lineColors.push(colors[a * 3], colors[a * 3 + 1], colors[a * 3 + 2]);
-                        lineColors.push(colors[b * 3], colors[b * 3 + 1], colors[b * 3 + 2]);
-                    }
-                    addLineEdge(i0, i1); addLineEdge(i1, i2); addLineEdge(i2, i0);
-                }
-
-                if (isShaded) {
-                    if (shadingStyle === 'hsl_relief') {
-                        const facetedPos = [];
-                        const facetedCol = [];
-                        for (let i = 0; i < indices.length; i += 3) {
-                            const i0 = indices[i], i1 = indices[i + 1], i2 = indices[i + 2];
-                            const p0 = new THREE.Vector3(positions[i0*3], positions[i0*3+1], positions[i0*3+2]);
-                            const p1 = new THREE.Vector3(positions[i1*3], positions[i1*3+1], positions[i1*3+2]);
-                            const p2 = new THREE.Vector3(positions[i2*3], positions[i2*3+1], positions[i2*3+2]);
-
-                            const cb = new THREE.Vector3().subVectors(p2, p1);
-                            const ab = new THREE.Vector3().subVectors(p0, p1);
-                            const norm = new THREE.Vector3().crossVectors(cb, ab).normalize();
-                            const dot = Math.max(0, norm.dot(sunDir));
-                            const lightMult = 0.72 + 0.38 * dot;
-
-                            function pushFacetedQuadPt(idx, pt) {
-                                facetedPos.push(pt.x, pt.y, pt.z);
-                                const elevVal = pt.y / heightScale;
-                                const hRatio = Math.min(1.0, Math.max(0.0, elevVal / maxElev));
-                                const c = getColor(hRatio, lightMult);
-                                facetedCol.push(c.r, c.g, c.b);
-                            }
-                            pushFacetedQuadPt(i0, p0); pushFacetedQuadPt(i1, p1); pushFacetedQuadPt(i2, p2);
-                        }
-                        const facetedGeo = new THREE.BufferGeometry();
-                        facetedGeo.setAttribute('position', new THREE.Float32BufferAttribute(facetedPos, 3));
-                        facetedGeo.setAttribute('color', new THREE.Float32BufferAttribute(facetedCol, 3));
-                        facetedGeo.computeVertexNormals();
-
-                        const surfaceMat = new THREE.MeshBasicMaterial({
-                            vertexColors: true,
-                            side: THREE.DoubleSide,
-                            polygonOffset: true,
-                            polygonOffsetFactor: 1,
-                            polygonOffsetUnits: 1
-                        });
-                        const surfaceMesh = new THREE.Mesh(facetedGeo, surfaceMat);
-                        surfaceMesh.isShadedSurface = true;
-                        ridgelineGroup.add(surfaceMesh);
-                    } else if (shadingStyle === 'unlit') {
-                        const surfaceMat = new THREE.MeshBasicMaterial({
-                            vertexColors: true,
-                            side: THREE.DoubleSide,
-                            polygonOffset: true,
-                            polygonOffsetFactor: 1,
-                            polygonOffsetUnits: 1
-                        });
-                        const surfaceMesh = new THREE.Mesh(geom, surfaceMat);
-                        surfaceMesh.isShadedSurface = true;
-                        ridgelineGroup.add(surfaceMesh);
-                    } else if (shadingStyle === 'smooth') {
-                        const surfaceMat = new THREE.MeshPhongMaterial({
-                            vertexColors: true,
-                            side: THREE.DoubleSide,
-                            flatShading: false,
-                            shininess: 0,
-                            polygonOffset: true,
-                            polygonOffsetFactor: 1,
-                            polygonOffsetUnits: 1
-                        });
-                        const surfaceMesh = new THREE.Mesh(geom, surfaceMat);
-                        surfaceMesh.isShadedSurface = true;
-                        ridgelineGroup.add(surfaceMesh);
-                    } else {
-                        const surfaceMat = new THREE.MeshPhongMaterial({
-                            vertexColors: true,
-                            side: THREE.DoubleSide,
-                            flatShading: true,
-                            shininess: 15,
-                            polygonOffset: true,
-                            polygonOffsetFactor: 1,
-                            polygonOffsetUnits: 1
-                        });
-                        const surfaceMesh = new THREE.Mesh(geom, surfaceMat);
-                        surfaceMesh.isShadedSurface = true;
-                        ridgelineGroup.add(surfaceMesh);
-                    }
-
-                    const lineGeo = new THREE.BufferGeometry();
-                    lineGeo.setAttribute('position', new THREE.Float32BufferAttribute(linePositions, 3));
-                    const lineMat = new THREE.LineBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.35, linewidth: 1.5 });
-                    const lineMesh = new THREE.LineSegments(lineGeo, lineMat);
-                    ridgelineGroup.add(lineMesh);
-                } else {
-                    const fillMat = new THREE.MeshBasicMaterial({
-                        color: 0x0a0a0c,
-                        side: THREE.DoubleSide,
-                        polygonOffset: true,
-                        polygonOffsetFactor: 1,
-                        polygonOffsetUnits: 1
-                    });
-                    const fillMesh = new THREE.Mesh(geom, fillMat);
-                    fillMesh.isOccluder = true;
-                    ridgelineGroup.add(fillMesh);
-
-                    const lineGeo = new THREE.BufferGeometry();
-                    lineGeo.setAttribute('position', new THREE.Float32BufferAttribute(linePositions, 3));
-                    lineGeo.setAttribute('color', new THREE.Float32BufferAttribute(lineColors, 3));
-
-                    const lineMat = new THREE.LineBasicMaterial({ vertexColors: true, linewidth: 2.0 });
-                    const lineMesh = new THREE.LineSegments(lineGeo, lineMat);
-                    ridgelineGroup.add(lineMesh);
-                }
             } else {
                 // --- Joy Division Stacked Ridgeline Slices ---
                 if (isShaded) {
-                    // Shaded 3D continuous terrain underlay
                     const tRows = Math.min(nLines, 80);
                     const tCols = Math.min(cols, 80);
                     const tPos = [];
@@ -1691,38 +1694,12 @@
                         }
                     }
 
-                    const terrainGeo = new THREE.BufferGeometry();
-                    terrainGeo.setAttribute('position', new THREE.Float32BufferAttribute(tPos, 3));
-                    terrainGeo.setAttribute('color', new THREE.Float32BufferAttribute(tCol, 3));
-                    terrainGeo.setIndex(tIdx);
-                    terrainGeo.computeVertexNormals();
-
-                    if (shadingStyle === 'hsl_relief' || shadingStyle === 'unlit') {
-                        const terrainMat = new THREE.MeshBasicMaterial({
-                            vertexColors: true,
-                            side: THREE.DoubleSide,
-                            polygonOffset: true,
-                            polygonOffsetFactor: 1,
-                            polygonOffsetUnits: 1
-                        });
-                        const terrainMesh = new THREE.Mesh(terrainGeo, terrainMat);
-                        terrainMesh.isShadedSurface = true;
-                        ridgelineGroup.add(terrainMesh);
-                    } else {
-                        const terrainMat = new THREE.MeshPhongMaterial({
-                            vertexColors: true,
-                            side: THREE.DoubleSide,
-                            flatShading: shadingStyle === 'faceted',
-                            shininess: shadingStyle === 'faceted' ? 15 : 0,
-                            polygonOffset: true,
-                            polygonOffsetFactor: 1,
-                            polygonOffsetUnits: 1
-                        });
-                        const terrainMesh = new THREE.Mesh(terrainGeo, terrainMat);
-                        terrainMesh.isShadedSurface = true;
-                        ridgelineGroup.add(terrainMesh);
-                    }
+                    const terrainMesh = buildBarycentricMesh(tIdx, tPos, tCol, null, true, shadingStyle, sunDir, grid, rows, cols, maxElev, heightScale, lineWidthVal);
+                    ridgelineGroup.add(terrainMesh);
                 }
+
+                // Render Joy Division stacked ridgeline slices with controllable line ribbons
+                const ribbonMat = createRibbonMaterial(lineWidthVal);
 
                 for (let l = 0; l < nLines; l++) {
                     const rIdx = Math.floor((l / (nLines - 1)) * (rows - 1));
@@ -1730,8 +1707,8 @@
                     const smoothedRow = smoothArray(rawRow, smoothWin);
 
                     const numPts = cols;
-                    const linePositions = [];
-                    const lineColors = [];
+                    const linePts = [];
+                    const lineCols = [];
                     const fillPositions = [];
                     const fillIndices = [];
 
@@ -1744,8 +1721,8 @@
                         const hRatio = Math.min(1.0, Math.max(0.0, smoothedRow[c] / maxElev));
                         const ptColor = getColor(hRatio);
 
-                        linePositions.push(xPos, yPos, zPos);
-                        lineColors.push(ptColor.r, ptColor.g, ptColor.b);
+                        linePts.push(new THREE.Vector3(xPos, yPos, zPos));
+                        lineCols.push(ptColor);
 
                         fillPositions.push(xPos, yPos, zPos);
                         fillPositions.push(xPos, baseY, zPos);
@@ -1776,16 +1753,9 @@
                     fillMesh.isOccluder = true;
                     ridgelineGroup.add(fillMesh);
 
-                    const lineGeo = new THREE.BufferGeometry();
-                    lineGeo.setAttribute('position', new THREE.Float32BufferAttribute(linePositions, 3));
-                    lineGeo.setAttribute('color', new THREE.Float32BufferAttribute(lineColors, 3));
-
-                    const lineMat = new THREE.LineBasicMaterial({
-                        vertexColors: true,
-                        linewidth: isShaded ? 2.5 : 1.5
-                    });
-                    const lineMesh = new THREE.Line(lineGeo, lineMat);
-                    ridgelineGroup.add(lineMesh);
+                    const ribbonGeo = buildRibbonGeometry(linePts, lineCols);
+                    const ribbonMesh = new THREE.Mesh(ribbonGeo, ribbonMat);
+                    ridgelineGroup.add(ribbonMesh);
                 }
             }
         }
@@ -1827,6 +1797,16 @@
         sliderLines.addEventListener('input', (e) => {
             valLines.textContent = e.target.value;
             updateRidgelineMesh();
+        });
+
+        sliderLineWidth.addEventListener('input', (e) => {
+            const lw = parseFloat(e.target.value);
+            valLineWidth.textContent = lw.toFixed(1) + 'px';
+            ridgelineGroup.traverse((child) => {
+                if (child.material && child.material.uniforms && child.material.uniforms.uLineWidth) {
+                    child.material.uniforms.uLineWidth.value = lw;
+                }
+            });
         });
 
         sliderSmooth.addEventListener('input', (e) => {
@@ -2127,15 +2107,30 @@
             const isTransparent = exportBgSelect.value === 'transparent';
             const resChoice = exportResSelect ? exportResSelect.value : '4000';
             
+            const activeCanvas = renderer.domElement;
+            const screenW = activeCanvas.clientWidth || window.innerWidth;
+            const screenH = activeCanvas.clientHeight || window.innerHeight;
+            const screenAspect = screenW / screenH;
+
             let exportW = 4000;
             let exportH = 4000;
-            if (resChoice === '5000') { exportW = 5000; exportH = 5000; }
-            else if (resChoice === '3000') { exportW = 3000; exportH = 3000; }
-            else if (resChoice === '2048') { exportW = 2048; exportH = 2048; }
-            else if (resChoice === 'screen') {
-                exportW = Math.floor(window.innerWidth * (window.devicePixelRatio || 1));
-                exportH = Math.floor(window.innerHeight * (window.devicePixelRatio || 1));
+
+            if (resChoice === 'screen') {
+                exportW = Math.floor(screenW * (window.devicePixelRatio || 1));
+                exportH = Math.floor(screenH * (window.devicePixelRatio || 1));
+            } else {
+                const maxDim = parseInt(resChoice) || 4000;
+                if (screenAspect >= 1.0) {
+                    exportW = maxDim;
+                    exportH = Math.round(maxDim / screenAspect);
+                } else {
+                    exportH = maxDim;
+                    exportW = Math.round(maxDim * screenAspect);
+                }
             }
+
+            const scaleFactor = exportW / screenW;
+            const currentLineWidth = sliderLineWidth ? (parseFloat(sliderLineWidth.value) || 1.5) : 1.5;
 
             const origExportText = btnExport.textContent;
             btnExport.textContent = `Rendering ${exportW}×${exportH}...`;
@@ -2158,16 +2153,29 @@
                     exportRenderer.setSize(exportW, exportH, false);
                     exportRenderer.setPixelRatio(1);
 
-                    // Setup dedicated export camera matching current view perspective
+                    // Setup dedicated export camera matching current view aspect and perspective exactly
                     const exportCamera = camera.clone();
                     exportCamera.aspect = exportW / exportH;
                     exportCamera.updateProjectionMatrix();
 
-                    // Collect all occluding fill meshes to toggle colorWrite
+                    // Scale line width and resolution uniforms proportionally for export resolution
+                    const shaderMaterials = [];
                     const fillMeshes = [];
                     ridgelineGroup.traverse((child) => {
                         if (child.isMesh && child.isOccluder) {
                             fillMeshes.push(child);
+                        }
+                        if (child.material && child.material.uniforms) {
+                            shaderMaterials.push(child.material);
+                            if (child.material.uniforms.uLineWidth) {
+                                child.material.uniforms.uLineWidth.value = currentLineWidth * scaleFactor;
+                            }
+                            if (child.material.uniforms.uResolution) {
+                                child.material.uniforms.uResolution.value.set(exportW, exportH);
+                            }
+                            if (isTransparent && child.material.uniforms.uTransparentBg) {
+                                child.material.uniforms.uTransparentBg.value = 1.0;
+                            }
                         }
                     });
 
@@ -2187,13 +2195,25 @@
                     exportRenderer.render(scene, exportCamera);
                     const dataURL = exportCanvas.toDataURL('image/png');
 
-                    // Restore live viewport state
+                    // Restore live viewport state and line widths
                     if (isTransparent) {
                         fillMeshes.forEach(mesh => {
                             mesh.material.colorWrite = true;
                         });
                         scene.background = prevBg;
                     }
+
+                    shaderMaterials.forEach(mat => {
+                        if (mat.uniforms.uLineWidth) {
+                            mat.uniforms.uLineWidth.value = currentLineWidth;
+                        }
+                        if (mat.uniforms.uResolution) {
+                            mat.uniforms.uResolution.value.set(screenW, screenH);
+                        }
+                        if (mat.uniforms.uTransparentBg) {
+                            mat.uniforms.uTransparentBg.value = 0.0;
+                        }
+                    });
 
                     // Clean up offscreen WebGL context
                     exportRenderer.dispose();
@@ -2211,10 +2231,11 @@
                     const shadedSlug = isShadedChecked ? `${shadingStyleSelect.value}_` : '';
                     const exSlug = parseFloat(sliderExaggeration.value).toFixed(1).replace('.', 'p');
                     const linesSlug = sliderLines.value + 'lines';
+                    const lwSlug = `lw${currentLineWidth.toFixed(1).replace('.', 'p')}`;
                     const bgSlug = isTransparent ? 'transparent' : 'darkbg';
                     const resSlug = `${exportW}x${exportH}`;
 
-                    const filename = `${regionSlug}_${modeSlug}_${shadedSlug}${colorSlug}_ex${exSlug}_${linesSlug}_${resSlug}_${bgSlug}.png`;
+                    const filename = `${regionSlug}_${modeSlug}_${shadedSlug}${colorSlug}_ex${exSlug}_${linesSlug}_${lwSlug}_${resSlug}_${bgSlug}.png`;
 
                     const link = document.createElement('a');
                     link.download = filename;
