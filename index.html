@@ -596,12 +596,13 @@
                             <span class="info-icon" tabindex="0" title="Flight Controls Guide">ℹ️</span>
                             <div class="tooltip-box">
                                 <strong>✈️ Flight Mode Controls:</strong>
-                                • <b>W / ↑</b>: Fly Forward<br>
-                                • <b>S / ↓</b>: Fly Backward<br>
+                                • <b>F / R</b>: Move Toward / Away (Look Direction)<br>
+                                • <b>W / ↑</b>: Fly Forward (Horizontal)<br>
+                                • <b>S / ↓</b>: Fly Backward (Horizontal)<br>
                                 • <b>A / D</b>: Strafe Left / Right<br>
-                                • <b>E / Q</b>: Climb / Descend<br>
-                                • <b>← / →</b>: Turn Left / Right (Yaw)<br>
+                                • <b>E / Q</b>: Climb / Descend Vertically<br>
                                 • <b>Shift + ↑ / ↓</b>: Look Up / Down (Pitch)<br>
+                                • <b>← / →</b>: Turn Left / Right (Yaw)<br>
                                 • <b>Mouse Drag</b>: Look Around<br>
                                 • <b>Shift + Drag</b>: Pan View
                             </div>
@@ -2256,9 +2257,14 @@
             const dt = clock.getDelta();
             const speed = flightSpeed * dt;
 
-            const forward = new THREE.Vector3();
-            camera.getWorldDirection(forward);
-            // Project forward vector onto horizontal XZ plane so eye height stays 100% constant when flying forward/backward
+            // Full 3D Look Direction Vector (for flying directly toward/away along line of sight)
+            const lookDir3D = new THREE.Vector3();
+            camera.getWorldDirection(lookDir3D);
+            if (lookDir3D.lengthSq() > 0.0001) lookDir3D.normalize();
+            else lookDir3D.set(0, 0, -1);
+
+            // Horizontal Forward Vector (projected onto XZ plane for planar flight)
+            const forward = lookDir3D.clone();
             forward.y = 0;
             if (forward.lengthSq() > 0.0001) forward.normalize();
             else forward.set(0, 0, -1);
@@ -2283,10 +2289,10 @@
                 moved = true;
             }
 
-            // Look Up / Down (Pitch) with Shift + Up/Down (or Shift + W/S, or R/F) without changing eye position
+            // Look Up / Down (Pitch) with Shift + Up/Down (or Shift + W/S) without changing eye position
             const pitchRate = 1.5 * dt;
-            const isPitchUp = (keysPressed['shift'] && (keysPressed['arrowup'] || keysPressed['w'])) || keysPressed['r'];
-            const isPitchDown = (keysPressed['shift'] && (keysPressed['arrowdown'] || keysPressed['s'])) || keysPressed['f'];
+            const isPitchUp = keysPressed['shift'] && (keysPressed['arrowup'] || keysPressed['w']);
+            const isPitchDown = keysPressed['shift'] && (keysPressed['arrowdown'] || keysPressed['s']);
 
             if (isPitchUp) {
                 const offset = new THREE.Vector3().subVectors(controls.target, camera.position);
@@ -2306,7 +2312,19 @@
                 }
             }
 
-            // Fly Forward / Backward (only when NOT pitch-looking with Shift)
+            // 3D Line-of-Sight Movement: F = Forward (toward look target), R = Reverse (away from look target)
+            if (keysPressed['f']) {
+                camera.position.addScaledVector(lookDir3D, speed);
+                controls.target.addScaledVector(lookDir3D, speed);
+                moved = true;
+            }
+            if (keysPressed['r']) {
+                camera.position.addScaledVector(lookDir3D, -speed);
+                controls.target.addScaledVector(lookDir3D, -speed);
+                moved = true;
+            }
+
+            // Planar Horizontal Flight: W / Up = Forward, S / Down = Backward (when Shift is NOT held)
             const isFlyFwd = (!keysPressed['shift'] && keysPressed['arrowup']) || (keysPressed['w'] && !keysPressed['shift']);
             const isFlyBack = (!keysPressed['shift'] && keysPressed['arrowdown']) || (keysPressed['s'] && !keysPressed['shift']);
 

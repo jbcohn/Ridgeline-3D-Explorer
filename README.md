@@ -34,10 +34,12 @@ An interactive, GPU-accelerated 3D topographic terrain explorer, finite element 
 
 | Action | Flight Mode | Orbit Mode |
 |---|---|---|
-| **Fly Forward / Backward** | `W` / `S` or `↑` / `↓` | — |
+| **Move Toward / Away (Look Direction)** | `F` / `R` | — |
+| **Fly Forward / Backward (Horizontal)** | `W` / `S` or `↑` / `↓` | — |
 | **Strafe Left / Right** | `A` / `D` | — |
-| **Climb / Descend** | `E` / `Q` or On-Screen Climb/Descend | — |
-| **Turn View Direction** | `←` / `→` or Drag canvas | Drag canvas to Orbit |
+| **Climb / Descend Vertically** | `E` / `Q` | — |
+| **Look Up / Down (Pitch)** | `Shift` + `↑` / `↓` (or `Shift` + `W`/`S`) | — |
+| **Turn Left / Right (Yaw)** | `←` / `→` or Drag canvas | Drag canvas to Orbit |
 | **Pan Camera** | Shift + Drag / Wheel | Shift + Drag / Wheel or PAN Mode |
 | **Zoom In / Out** | Mouse Wheel / Trackpad Pinch | Mouse Wheel / Trackpad Pinch |
 | **Toggle Menu** | ☰ Floating Button or Drag Handle | ☰ Floating Button or Drag Handle |
