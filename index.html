@@ -1061,7 +1061,9 @@
             const width = 120; // fixed 3D width span (E-W)
             const depth = 120; // fixed 3D depth span (N-S)
             const realWidthM = data.width_m > 0 ? data.width_m : 50000.0;
-            const maxElev = (data.max_elev > data.min_elev) ? (data.max_elev - data.min_elev) : 1000.0;
+            const minElev = (data.min_elev !== undefined) ? data.min_elev : 0.0;
+            const maxElev = (data.max_elev !== undefined) ? data.max_elev : 1000.0;
+            const spanElev = (maxElev > minElev) ? (maxElev - minElev) : 1000.0;
 
             const heightScale = (width / realWidthM) * exaggeration;
 
@@ -1272,7 +1274,7 @@
             }
 
             // Helper: Build Barycentric Mesh from Triangles
-            function buildBarycentricMesh(indices, positions, colors, rawPoints, isShaded, shadingStyle, sunDir, grid, rows, cols, maxElev, heightScale, lw) {
+            function buildBarycentricMesh(indices, positions, colors, rawPoints, isShaded, shadingStyle, sunDir, grid, rows, cols, minElev, spanElev, heightScale, lw) {
                 const nonIndexedPos = [];
                 const nonIndexedCol = [];
                 const barycentric = [];
@@ -1293,8 +1295,8 @@
                         const lightMult = 0.72 + 0.38 * dot;
 
                         function getPtCol(idx, pt) {
-                            const elevVal = rawPoints ? sampleDEM(grid, rows, cols, rawPoints[idx*2], rawPoints[idx*2+1]) : (pt.y / heightScale);
-                            const hRatio = Math.min(1.0, Math.max(0.0, elevVal / maxElev));
+                            const elevVal = rawPoints ? sampleDEM(grid, rows, cols, rawPoints[idx*2], rawPoints[idx*2+1]) : (pt.y / heightScale + minElev);
+                            const hRatio = Math.min(1.0, Math.max(0.0, (elevVal - minElev) / spanElev));
                             return getColor(hRatio, lightMult);
                         }
                         const c0 = getPtCol(i0, p0);
@@ -1453,7 +1455,7 @@
                 function getTargetSpacing(u, v) {
                     const sRatio = getSlope(u, v) / maxS;
                     const hVal = sampleDEM(grid, rows, cols, u, v);
-                    const hRatio = Math.max(0, Math.min(1, hVal / maxElev));
+                    const hRatio = Math.max(0, Math.min(1, (hVal - minElev) / spanElev));
                     const importance = 0.15 + 0.85 * Math.pow(sRatio * 0.65 + hRatio * 0.35, 1.25);
                     return (1.0 / baseRes) * (1.2 / (1.0 + 2.5 * importance));
                 }
@@ -1583,8 +1585,8 @@
                     const xPos = (uN - 0.5) * width;
                     const zPos = (vN - 0.5) * depth;
                     const elevVal = sampleDEM(grid, rows, cols, uN, vN);
-                    const yPos = elevVal * heightScale;
-                    const hRatio = Math.min(1.0, Math.max(0.0, elevVal / maxElev));
+                    const yPos = (elevVal - minElev) * heightScale;
+                    const hRatio = Math.min(1.0, Math.max(0.0, (elevVal - minElev) / spanElev));
                     const ptColor = getColor(hRatio);
 
                     positions.push(xPos, yPos, zPos);
@@ -1594,7 +1596,7 @@
                 const indices = Array.from(delaunay.triangles);
 
                 // Build Adaptive Mesh with Barycentric Wireframe Shader
-                const adaptiveMesh = buildBarycentricMesh(indices, positions, colors, rawPoints, isShaded, shadingStyle, sunDir, grid, rows, cols, maxElev, heightScale, lineWidthVal);
+                const adaptiveMesh = buildBarycentricMesh(indices, positions, colors, rawPoints, isShaded, shadingStyle, sunDir, grid, rows, cols, minElev, spanElev, heightScale, lineWidthVal);
                 ridgelineGroup.add(adaptiveMesh);
 
             } else if (renderStyle === 'fe_wireframe') {
@@ -1629,8 +1631,8 @@
 
                         // Interpolate exact DEM elevation height Z at this randomized (u, v) location
                         const elevVal = sampleDEM(grid, rows, cols, uNorm, vNorm);
-                        const yPos = elevVal * heightScale;
-                        const hRatio = Math.min(1.0, Math.max(0.0, elevVal / maxElev));
+                        const yPos = (elevVal - minElev) * heightScale;
+                        const hRatio = Math.min(1.0, Math.max(0.0, (elevVal - minElev) / spanElev));
                         const ptColor = getColor(hRatio);
 
                         positions.push(xPos, yPos, zPos);
@@ -1652,7 +1654,7 @@
                 }
 
                 // Build Uniform Grid with Barycentric Wireframe Shader
-                const uniformMesh = buildBarycentricMesh(indices, positions, colors, null, isShaded, shadingStyle, sunDir, grid, rows, cols, maxElev, heightScale, lineWidthVal);
+                const uniformMesh = buildBarycentricMesh(indices, positions, colors, null, isShaded, shadingStyle, sunDir, grid, rows, cols, minElev, spanElev, heightScale, lineWidthVal);
                 ridgelineGroup.add(uniformMesh);
 
             } else {
@@ -1675,8 +1677,8 @@
                             const cIdx = Math.floor(u * (cols - 1));
                             const xPos = (u - 0.5) * width;
                             const elev = smoothed[cIdx];
-                            const yPos = elev * heightScale;
-                            const hRatio = Math.min(1.0, Math.max(0.0, elev / maxElev));
+                            const yPos = (elev - minElev) * heightScale;
+                            const hRatio = Math.min(1.0, Math.max(0.0, (elev - minElev) / spanElev));
                             const col = getColor(hRatio);
 
                             tPos.push(xPos, yPos, zPos);
@@ -1695,7 +1697,7 @@
                         }
                     }
 
-                    const terrainMesh = buildBarycentricMesh(tIdx, tPos, tCol, null, true, shadingStyle, sunDir, grid, rows, cols, maxElev, heightScale, lineWidthVal);
+                    const terrainMesh = buildBarycentricMesh(tIdx, tPos, tCol, null, true, shadingStyle, sunDir, grid, rows, cols, minElev, spanElev, heightScale, lineWidthVal);
                     ridgelineGroup.add(terrainMesh);
                 }
 
@@ -1718,8 +1720,8 @@
 
                     for (let c = 0; c < numPts; c++) {
                         const xPos = ((c / (numPts - 1)) - 0.5) * width;
-                        const yPos = smoothedRow[c] * heightScale;
-                        const hRatio = Math.min(1.0, Math.max(0.0, smoothedRow[c] / maxElev));
+                        const yPos = (smoothedRow[c] - minElev) * heightScale;
+                        const hRatio = Math.min(1.0, Math.max(0.0, (smoothedRow[c] - minElev) / spanElev));
                         const ptColor = getColor(hRatio);
 
                         linePts.push(new THREE.Vector3(xPos, yPos, zPos));
