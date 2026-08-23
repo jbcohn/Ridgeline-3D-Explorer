@@ -684,7 +684,8 @@
 
         const controls = new THREE.OrbitControls(camera, renderer.domElement);
         controls.enableDamping = true;
-        controls.dampingFactor = 0.05;
+        controls.dampingFactor = 0.08;
+        controls.zoomSpeed = 0.35; // Smooth, fine-grained zoom speed for trackpads and mice
         controls.maxPolarAngle = Math.PI / 2 + 0.1; // allow looking slightly below horizon
         controls.screenSpacePanning = true; // smooth screen-space panning on trackpads
 
@@ -2253,11 +2254,13 @@
 
         window.addEventListener('resize', updateLayoutAndCanvas);
 
-        // Trackpad Two-Finger Scroll Pan
+        // Trackpad Two-Finger Scroll Pan (scaled with current zoom distance)
         container.addEventListener('wheel', (e) => {
             if (e.shiftKey || isPanDragMode) {
                 e.preventDefault();
-                const panSpeed = 0.2;
+                const distToTarget = Math.max(2.0, camera.position.distanceTo(controls.target));
+                const zoomScale = Math.min(2.0, Math.max(0.06, distToTarget / 100.0));
+                const panSpeed = 0.08 * zoomScale;
                 const dx = e.deltaX * panSpeed;
                 const dy = e.deltaY * panSpeed;
 
@@ -2279,7 +2282,12 @@
         function updateFlightPhysics() {
             if (navMode !== 'flight') return;
             const dt = clock.getDelta();
-            const speed = flightSpeed * dt;
+
+            // Measure distance from eye to current target for adaptive zoom-proportional translation speed
+            const eyePos = camera.position.clone();
+            const distToTarget = Math.max(2.0, camera.position.distanceTo(controls.target));
+            const zoomScale = Math.min(2.2, Math.max(0.05, distToTarget / 110.0));
+            const speed = flightSpeed * dt * zoomScale;
 
             // Full 3D Look Direction Vector (for flying directly toward/away along line of sight)
             const lookDir3D = new THREE.Vector3();
@@ -2306,42 +2314,43 @@
             else forward.set(0, 0, -1);
 
             let moved = false;
+            let eyeRotatedOnly = false;
 
-            // Turn view direction left / right (Yaw) around local Up axis (perpendicular to looking direction)
+            // Turn view direction left / right (Yaw) around local Up axis with strictly fixed eye position
             const turnRate = 1.6 * dt;
             if (keysPressed['arrowleft']) {
-                const offset = new THREE.Vector3().subVectors(controls.target, camera.position);
-                offset.applyAxisAngle(localUp, turnRate);
-                controls.target.copy(camera.position).add(offset);
+                const newDir = lookDir3D.clone().applyAxisAngle(localUp, turnRate).normalize();
+                controls.target.copy(eyePos).addScaledVector(newDir, distToTarget);
                 moved = true;
+                eyeRotatedOnly = true;
             }
             if (keysPressed['arrowright']) {
-                const offset = new THREE.Vector3().subVectors(controls.target, camera.position);
-                offset.applyAxisAngle(localUp, -turnRate);
-                controls.target.copy(camera.position).add(offset);
+                const newDir = lookDir3D.clone().applyAxisAngle(localUp, -turnRate).normalize();
+                controls.target.copy(eyePos).addScaledVector(newDir, distToTarget);
                 moved = true;
+                eyeRotatedOnly = true;
             }
 
-            // Look Up / Down (Pitch) with Shift + Up/Down (or Shift + W/S) without changing eye position
+            // Look Up / Down (Pitch) with Shift + Up/Down (or Shift + W/S) around local right axis with fixed eye position
             const pitchRate = 1.5 * dt;
             const isPitchUp = keysPressed['shift'] && (keysPressed['arrowup'] || keysPressed['w']);
             const isPitchDown = keysPressed['shift'] && (keysPressed['arrowdown'] || keysPressed['s']);
 
             if (isPitchUp) {
-                const offset = new THREE.Vector3().subVectors(controls.target, camera.position);
-                const testOffset = offset.clone().applyAxisAngle(right, pitchRate);
-                // Prevent flipping past vertical zenith (stay > 0.08 rad from +Y)
-                if (testOffset.angleTo(new THREE.Vector3(0, 1, 0)) > 0.08) {
-                    controls.target.copy(camera.position).add(testOffset);
+                const newDir = lookDir3D.clone().applyAxisAngle(right, pitchRate).normalize();
+                // Prevent flipping past vertical zenith (stay > 0.12 rad from +Y)
+                if (newDir.y < 0.98) {
+                    controls.target.copy(eyePos).addScaledVector(newDir, distToTarget);
                     moved = true;
+                    eyeRotatedOnly = true;
                 }
             } else if (isPitchDown) {
-                const offset = new THREE.Vector3().subVectors(controls.target, camera.position);
-                const testOffset = offset.clone().applyAxisAngle(right, -pitchRate);
-                // Prevent flipping past vertical nadir (stay > 0.08 rad from -Y)
-                if (testOffset.angleTo(new THREE.Vector3(0, -1, 0)) > 0.08) {
-                    controls.target.copy(camera.position).add(testOffset);
+                const newDir = lookDir3D.clone().applyAxisAngle(right, -pitchRate).normalize();
+                // Prevent flipping past vertical nadir (stay > 0.12 rad from -Y)
+                if (newDir.y > -0.98) {
+                    controls.target.copy(eyePos).addScaledVector(newDir, distToTarget);
                     moved = true;
+                    eyeRotatedOnly = true;
                 }
             }
 
@@ -2397,7 +2406,15 @@
             }
 
             if (moved) {
-                controls.update();
+                if (eyeRotatedOnly) {
+                    camera.position.copy(eyePos);
+                    camera.lookAt(controls.target);
+                    // Synchronize OrbitControls internal target without letting its spherical damping displace the eye
+                    controls.update();
+                    camera.position.copy(eyePos);
+                } else {
+                    controls.update();
+                }
             }
         }
 
