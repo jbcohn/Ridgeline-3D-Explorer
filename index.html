@@ -2266,28 +2266,37 @@
             if (lookDir3D.lengthSq() > 0.0001) lookDir3D.normalize();
             else lookDir3D.set(0, 0, -1);
 
+            // Right Vector (perpendicular to line-of-sight and world vertical)
+            const worldUp = new THREE.Vector3(0, 1, 0);
+            const right = new THREE.Vector3().crossVectors(lookDir3D, worldUp);
+            if (right.lengthSq() > 0.0001) {
+                right.normalize();
+            } else {
+                right.set(1, 0, 0);
+            }
+
+            // Local Up Vector (strictly perpendicular to line of sight in camera frame)
+            const localUp = new THREE.Vector3().crossVectors(right, lookDir3D).normalize();
+
             // Horizontal Forward Vector (projected onto XZ plane for planar flight)
             const forward = lookDir3D.clone();
             forward.y = 0;
             if (forward.lengthSq() > 0.0001) forward.normalize();
             else forward.set(0, 0, -1);
 
-            const right = new THREE.Vector3();
-            right.crossVectors(forward, camera.up).normalize();
-
             let moved = false;
 
-            // Turn view direction left / right (Yaw) with Left / Right Arrow keys
+            // Turn view direction left / right (Yaw) around local Up axis (perpendicular to looking direction)
             const turnRate = 1.6 * dt;
             if (keysPressed['arrowleft']) {
                 const offset = new THREE.Vector3().subVectors(controls.target, camera.position);
-                offset.applyAxisAngle(new THREE.Vector3(0, 1, 0), turnRate);
+                offset.applyAxisAngle(localUp, turnRate);
                 controls.target.copy(camera.position).add(offset);
                 moved = true;
             }
             if (keysPressed['arrowright']) {
                 const offset = new THREE.Vector3().subVectors(controls.target, camera.position);
-                offset.applyAxisAngle(new THREE.Vector3(0, 1, 0), -turnRate);
+                offset.applyAxisAngle(localUp, -turnRate);
                 controls.target.copy(camera.position).add(offset);
                 moved = true;
             }
