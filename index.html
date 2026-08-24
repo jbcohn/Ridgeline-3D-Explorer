@@ -458,7 +458,7 @@
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/delaunator@5.0.0/delaunator.min.js"></script>
     <!-- Embedded DEM Data -->
-    <script src="dem_data.js?v=20260823b"></script>
+    <script src="dem_data.js?v=20260824"></script>
 </head>
 <body>
     <div id="app-container">
@@ -1061,8 +1061,20 @@
             const width = 120; // fixed 3D width span (E-W)
             const depth = 120; // fixed 3D depth span (N-S)
             const realWidthM = data.width_m > 0 ? data.width_m : 50000.0;
-            const minElev = (data.min_elev !== undefined) ? data.min_elev : 0.0;
-            const maxElev = (data.max_elev !== undefined) ? data.max_elev : 1000.0;
+            let minElev = (data.min_elev !== undefined) ? data.min_elev : 0.0;
+            let maxElev = (data.max_elev !== undefined) ? data.max_elev : 1000.0;
+            if (minElev === undefined || maxElev === undefined || maxElev <= minElev) {
+                let gMin = Infinity, gMax = -Infinity;
+                for (let r = 0; r < rows; r++) {
+                    for (let c = 0; c < cols; c++) {
+                        const val = grid[r][c];
+                        if (val < gMin) gMin = val;
+                        if (val > gMax) gMax = val;
+                    }
+                }
+                minElev = gMin;
+                maxElev = gMax;
+            }
             const spanElev = (maxElev > minElev) ? (maxElev - minElev) : 1000.0;
 
             const heightScale = (width / realWidthM) * exaggeration;
