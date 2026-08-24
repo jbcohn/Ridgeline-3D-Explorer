@@ -1478,8 +1478,7 @@
             }
 
             if (renderStyle === 'fe_gradual') {
-                // --- Quality Adaptive Delaunay TIN Mesh (Curvature, Slope & Prominence Guided) ---
-                const baseRes = Math.max(24, Math.floor(nLines * 0.65));
+                // --- True High-Dynamic-Range Adaptive Delaunay TIN Mesh ---
                 const eps = 0.008;
 
                 function getTerrainMetrics(u, v) {
@@ -1504,36 +1503,40 @@
                     }
                 }
 
+                const densityFactor = Math.max(0.4, Math.min(2.5, nLines / 60.0));
+                const minR = 0.008 / densityFactor; // dense spacing on sharp peaks & ridges
+                const maxR = 0.075 / Math.sqrt(densityFactor); // coarse spacing across flat valleys (9x larger!)
+
                 function getTargetSpacing(u, v) {
                     const m = getTerrainMetrics(u, v);
-                    const sRatio = m.slope / maxS;
-                    const cRatio = m.curvature / maxC;
+                    const sRatio = Math.min(1.0, m.slope / maxS);
+                    const cRatio = Math.min(1.0, m.curvature / maxC);
                     const hVal = sampleDEM(grid, rows, cols, u, v);
                     const hRatio = Math.max(0, Math.min(1, (hVal - minElev) / spanElev));
 
-                    // Combined feature importance: slope (40%), ridge curvature (40%), elevation (20%)
-                    const featureScore = sRatio * 0.40 + cRatio * 0.40 + hRatio * 0.20;
-                    const importance = Math.min(1.0, Math.pow(featureScore, 1.15));
+                    // Combined feature importance: slope (35%), ridge curvature (45%), elevation (20%)
+                    const featureScore = sRatio * 0.35 + cRatio * 0.45 + hRatio * 0.20;
+                    const importance = Math.min(1.0, Math.pow(featureScore, 1.25));
 
-                    // Dynamic spacing: allocates up to 4.5x higher triangle density along ridges/peaks, while valleys stay clean
-                    const spacingMult = 1.30 / (1.0 + 3.8 * importance);
-                    return (1.0 / baseRes) * spacingMult;
+                    // Continuous exponential transition between large valley triangles and dense mountain facets
+                    return maxR - (maxR - minR) * importance;
                 }
 
-                // 1. Spatial Poisson-Disk Sampling to eliminate coincident / sliver points
+                // 1. Spatial Poisson-Disk Sampling with Adaptive Radius Rejection
                 const rawPoints = [];
-                const cellSize = 0.35 / baseRes;
+                const cellSize = minR / 1.414;
                 const gridCols = Math.ceil(1.0 / cellSize);
                 const spatialGrid = new Int32Array(gridCols * gridCols).fill(-1);
 
                 function addPoint(x, y) {
                     x = Math.max(0, Math.min(1, x));
                     y = Math.max(0, Math.min(1, y));
-                    const r = getTargetSpacing(x, y) * 0.68;
+                    const r = getTargetSpacing(x, y);
                     const gx = Math.floor(x / cellSize), gy = Math.floor(y / cellSize);
+                    const cellRad = Math.ceil(r / cellSize);
 
-                    const minGx = Math.max(0, gx - 2), maxGx = Math.min(gridCols - 1, gx + 2);
-                    const minGy = Math.max(0, gy - 2), maxGy = Math.min(gridCols - 1, gy + 2);
+                    const minGx = Math.max(0, gx - cellRad), maxGx = Math.min(gridCols - 1, gx + cellRad);
+                    const minGy = Math.max(0, gy - cellRad), maxGy = Math.min(gridCols - 1, gy + cellRad);
 
                     for (let j = minGy; j <= maxGy; j++) {
                         for (let i = minGx; i <= maxGx; i++) {
@@ -1553,35 +1556,34 @@
                     return true;
                 }
 
-                // Boundary points for sharp rectangular model borders
-                for (let i = 0; i <= baseRes; i++) {
-                    const t = i / baseRes;
-                    addPoint(t, 0); addPoint(t, 1);
-                    if (i > 0 && i < baseRes) { addPoint(0, t); addPoint(1, t); }
+                // Adaptive boundary points for clean rectangular frame
+                let tU = 0;
+                while (tU <= 1.0) {
+                    addPoint(tU, 0); addPoint(tU, 1);
+                    tU += getTargetSpacing(tU, 0) * 0.9;
                 }
+                addPoint(1, 0); addPoint(1, 1);
 
-                // Internal points with adaptive importance
-                for (let r = 1; r < baseRes; r++) {
-                    for (let c = 1; c < baseRes; c++) {
-                        const u = c / baseRes, v = r / baseRes;
-                        const targetR = getTargetSpacing(u, v);
-                        const jitScale = targetR * 0.45 * jitterAmount;
-                        const jitU = (hash2D(r * 17.3, c * 31.7) - 0.5) * jitScale;
-                        const jitV = (hash2D(c * 43.1, r * 19.9) - 0.5) * jitScale;
-                        addPoint(u + jitU, v + jitV);
+                let tV = 0;
+                while (tV <= 1.0) {
+                    addPoint(0, tV); addPoint(1, tV);
+                    tV += getTargetSpacing(0, tV) * 0.9;
+                }
+                addPoint(0, 1); addPoint(1, 1);
 
-                        if (targetR < 0.55 / baseRes) {
-                            const extraPts = (targetR < 0.35 / baseRes) ? 4 : 2;
-                            for (let k = 0; k < extraPts; k++) {
-                                const su = u + (hash2D(r * 53.1 + k * 11.3, c * 29.7 + k * 7.1) - 0.5) * targetR * 1.8;
-                                const sv = v + (hash2D(c * 67.3 + k * 13.9, r * 37.1 + k * 17.3) - 0.5) * targetR * 1.8;
-                                addPoint(su, sv);
-                            }
-                        }
+                // High-resolution candidate dart throwing
+                const sampleGridDim = Math.max(100, Math.floor(nLines * 1.8));
+                for (let r = 0; r < sampleGridDim; r++) {
+                    for (let c = 0; c < sampleGridDim; c++) {
+                        const jitU = (hash2D(r * 13.7, c * 37.1) - 0.5) * (1.0 / sampleGridDim);
+                        const jitV = (hash2D(c * 23.3, r * 19.7) - 0.5) * (1.0 / sampleGridDim);
+                        const u = (c + 0.5) / sampleGridDim + jitU;
+                        const v = (r + 0.5) / sampleGridDim + jitV;
+                        addPoint(u, v);
                     }
                 }
 
-                // 2. Chew's Second Algorithm (Circumcenter refinement to remove bad aspect triangles)
+                // 2. Chew's Second Algorithm (Refine any poorly shaped triangles)
                 let delaunay = new FastDelaunay(rawPoints);
 
                 for (let pass = 0; pass < 2; pass++) {
@@ -1601,7 +1603,7 @@
                         const cc = fdCircumcenter(x0, y0, x1, y1, x2, y2);
                         const rad = Math.hypot(cc.x - x0, cc.y - y0);
 
-                        if (rad / (minEdge || 1e-5) > 1.25 && cc.x > 0.02 && cc.x < 0.98 && cc.y > 0.02 && cc.y < 0.98) {
+                        if (rad / (minEdge || 1e-5) > 1.35 && cc.x > 0.02 && cc.x < 0.98 && cc.y > 0.02 && cc.y < 0.98) {
                             if (addPoint(cc.x, cc.y)) added++;
                         }
                     }
@@ -1609,32 +1611,8 @@
                     else break;
                 }
 
-                // 3. Centroidal Lloyd Relaxation for smooth, finite-element grade equilateral triangles
+                // Final Delaunay triangulation directly on the adaptive point field
                 const numPts = rawPoints.length >> 1;
-                const neighbors = Array.from({ length: numPts }, () => []);
-                for (let i = 0; i < delaunay.triangles.length; i += 3) {
-                    const i0 = delaunay.triangles[i], i1 = delaunay.triangles[i + 1], i2 = delaunay.triangles[i + 2];
-                    neighbors[i0].push(i1, i2);
-                    neighbors[i1].push(i0, i2);
-                    neighbors[i2].push(i0, i1);
-                }
-
-                for (let i = 0; i < numPts; i++) {
-                    const px = rawPoints[2 * i], py = rawPoints[2 * i + 1];
-                    if (px <= 0.005 || px >= 0.995 || py <= 0.005 || py >= 0.995) continue;
-                    const nbrs = neighbors[i];
-                    if (nbrs.length === 0) continue;
-                    let sumX = 0, sumY = 0;
-                    for (let j = 0; j < nbrs.length; j++) {
-                        sumX += rawPoints[2 * nbrs[j]];
-                        sumY += rawPoints[2 * nbrs[j] + 1];
-                    }
-                    const cx = sumX / nbrs.length, cy = sumY / nbrs.length;
-                    rawPoints[2 * i] = px * 0.5 + cx * 0.5;
-                    rawPoints[2 * i + 1] = py * 0.5 + cy * 0.5;
-                }
-
-                // Final Delaunay triangulation
                 delaunay = new FastDelaunay(rawPoints);
 
                 const positions = [];
