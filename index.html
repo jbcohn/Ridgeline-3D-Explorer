@@ -1504,8 +1504,8 @@
                 }
 
                 const densityFactor = Math.max(0.5, Math.min(3.0, nLines / 50.0));
-                const minR = 0.0035 / densityFactor; // dense, intricate triangles on mountain peaks & ridges
-                const maxR = 0.065 / Math.sqrt(densityFactor); // wide, broad polygons across flat plains
+                const minR = 0.0035 / densityFactor; // dense, intricate triangles on mountain peaks, ridges, canyons & ravines
+                const maxR = 0.065 / Math.sqrt(densityFactor); // wide, broad polygons across flat plains and gentle valleys
 
                 function getTargetSpacing(u, v) {
                     const m = getTerrainMetrics(u, v);
@@ -1514,9 +1514,11 @@
                     const hVal = sampleDEM(grid, rows, cols, u, v);
                     const hRatio = Math.max(0, Math.min(1, (hVal - minElev) / spanElev));
 
-                    // Elevation prominence (65%) + slope & ridge curvature (35%)
-                    const featureScore = Math.pow(hRatio, 0.5) * 0.65 + Math.pow(sRatio * 0.6 + cRatio * 0.4, 0.7) * 0.35;
-                    const importance = Math.min(1.0, Math.max(0.0, featureScore));
+                    // Roughness & curvature capture canyons, gorges, ravines, and cliff walls at ANY elevation
+                    const roughness = Math.min(1.0, Math.hypot(sRatio * 0.75, cRatio * 0.75));
+                    // Elevation feature weighting ensures summits and massifs also stay crisp
+                    const elevFeature = 0.65 * Math.pow(hRatio, 0.6) + 0.35 * roughness;
+                    const importance = Math.min(1.0, Math.max(Math.pow(roughness, 0.75), elevFeature));
 
                     return maxR - (maxR - minR) * importance;
                 }
