@@ -458,7 +458,7 @@
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/delaunator@5.0.0/delaunator.min.js"></script>
     <!-- Embedded DEM Data -->
-    <script src="dem_data.js?v=20260824"></script>
+    <script src="dem_data.js?v=20260824c"></script>
 </head>
 <body>
     <div id="app-container">
@@ -734,8 +734,12 @@
         const exportBgSelect = document.getElementById('export-bg-select');
         const btnExport = document.getElementById('btn-export');
 
-        // Populate Region Dropdown
-        for (const key in DEM_DATA) {
+        // Populate Region Dropdown (Alphabetized by name)
+        const sortedRegionKeys = Object.keys(DEM_DATA).sort((a, b) => {
+            return (DEM_DATA[a].name || a).localeCompare(DEM_DATA[b].name || b);
+        });
+
+        for (const key of sortedRegionKeys) {
             const opt = document.createElement('option');
             opt.value = key;
             opt.textContent = DEM_DATA[key].name;
