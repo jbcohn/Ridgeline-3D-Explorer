@@ -1277,11 +1277,11 @@
                             }
                         }
                     `,
-                    side: THREE.DoubleSide,
+                    side: THREE.FrontSide,
                     transparent: true,
                     polygonOffset: true,
-                    polygonOffsetFactor: 1,
-                    polygonOffsetUnits: 1
+                    polygonOffsetFactor: -1,
+                    polygonOffsetUnits: -1
                 });
             }
 
@@ -1335,6 +1335,34 @@
                 const mat = createBarycentricMaterial(isShaded, shadingStyle, sunDir, lw);
                 const mesh = new THREE.Mesh(geo, mat);
                 mesh.isShadedSurface = true;
+                mesh.renderOrder = 0;
+
+                if (!isShaded) {
+                    // Underlay a dedicated depth occluder so that transparent-background exports
+                    // and wireframe views hide rear/backface terrain behind front-facing slopes
+                    const occluderGeo = new THREE.BufferGeometry();
+                    occluderGeo.setAttribute('position', new THREE.Float32BufferAttribute(nonIndexedPos, 3));
+                    occluderGeo.computeVertexNormals();
+
+                    const occluderMat = new THREE.MeshBasicMaterial({
+                        color: 0x0a0a0c,
+                        side: THREE.FrontSide,
+                        depthWrite: true,
+                        depthTest: true,
+                        polygonOffset: true,
+                        polygonOffsetFactor: 1,
+                        polygonOffsetUnits: 1
+                    });
+                    const occluderMesh = new THREE.Mesh(occluderGeo, occluderMat);
+                    occluderMesh.isOccluder = true;
+                    occluderMesh.renderOrder = -1;
+
+                    const group = new THREE.Group();
+                    group.add(occluderMesh);
+                    group.add(mesh);
+                    return group;
+                }
+
                 return mesh;
             }
 
@@ -1766,10 +1794,12 @@
                     });
                     const fillMesh = new THREE.Mesh(fillGeo, fillMat);
                     fillMesh.isOccluder = true;
+                    fillMesh.renderOrder = -1;
                     ridgelineGroup.add(fillMesh);
 
                     const ribbonGeo = buildRibbonGeometry(linePts, lineCols);
                     const ribbonMesh = new THREE.Mesh(ribbonGeo, ribbonMat);
+                    ribbonMesh.renderOrder = 0;
                     ridgelineGroup.add(ribbonMesh);
                 }
             }
