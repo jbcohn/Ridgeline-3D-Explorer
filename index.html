@@ -1503,9 +1503,9 @@
                     }
                 }
 
-                const densityFactor = Math.max(0.4, Math.min(2.5, nLines / 60.0));
-                const minR = 0.008 / densityFactor; // dense spacing on sharp peaks & ridges
-                const maxR = 0.075 / Math.sqrt(densityFactor); // coarse spacing across flat valleys (9x larger!)
+                const densityFactor = Math.max(0.5, Math.min(3.0, nLines / 50.0));
+                const minR = 0.0035 / densityFactor; // dense, intricate triangles on mountain peaks & ridges
+                const maxR = 0.065 / Math.sqrt(densityFactor); // wide, broad polygons across flat plains
 
                 function getTargetSpacing(u, v) {
                     const m = getTerrainMetrics(u, v);
@@ -1514,11 +1514,10 @@
                     const hVal = sampleDEM(grid, rows, cols, u, v);
                     const hRatio = Math.max(0, Math.min(1, (hVal - minElev) / spanElev));
 
-                    // Combined feature importance: slope (35%), ridge curvature (45%), elevation (20%)
-                    const featureScore = sRatio * 0.35 + cRatio * 0.45 + hRatio * 0.20;
-                    const importance = Math.min(1.0, Math.pow(featureScore, 1.25));
+                    // Elevation prominence (65%) + slope & ridge curvature (35%)
+                    const featureScore = Math.pow(hRatio, 0.5) * 0.65 + Math.pow(sRatio * 0.6 + cRatio * 0.4, 0.7) * 0.35;
+                    const importance = Math.min(1.0, Math.max(0.0, featureScore));
 
-                    // Continuous exponential transition between large valley triangles and dense mountain facets
                     return maxR - (maxR - minR) * importance;
                 }
 
@@ -1560,19 +1559,19 @@
                 let tU = 0;
                 while (tU <= 1.0) {
                     addPoint(tU, 0); addPoint(tU, 1);
-                    tU += getTargetSpacing(tU, 0) * 0.9;
+                    tU += getTargetSpacing(tU, 0) * 0.85;
                 }
                 addPoint(1, 0); addPoint(1, 1);
 
                 let tV = 0;
                 while (tV <= 1.0) {
                     addPoint(0, tV); addPoint(1, tV);
-                    tV += getTargetSpacing(0, tV) * 0.9;
+                    tV += getTargetSpacing(0, tV) * 0.85;
                 }
                 addPoint(0, 1); addPoint(1, 1);
 
                 // High-resolution candidate dart throwing
-                const sampleGridDim = Math.max(100, Math.floor(nLines * 1.8));
+                const sampleGridDim = Math.max(220, Math.floor(nLines * 3.5));
                 for (let r = 0; r < sampleGridDim; r++) {
                     for (let c = 0; c < sampleGridDim; c++) {
                         const jitU = (hash2D(r * 13.7, c * 37.1) - 0.5) * (1.0 / sampleGridDim);
