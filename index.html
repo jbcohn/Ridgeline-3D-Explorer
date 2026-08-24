@@ -1277,7 +1277,7 @@
                             }
                         }
                     `,
-                    side: THREE.FrontSide,
+                    side: THREE.DoubleSide,
                     transparent: true,
                     polygonOffset: true,
                     polygonOffsetFactor: -1,
@@ -1339,14 +1339,14 @@
 
                 if (!isShaded) {
                     // Underlay a dedicated depth occluder so that transparent-background exports
-                    // and wireframe views hide rear/backface terrain behind front-facing slopes
+                    // and wireframe views hide rear terrain behind front-facing slopes
                     const occluderGeo = new THREE.BufferGeometry();
                     occluderGeo.setAttribute('position', new THREE.Float32BufferAttribute(nonIndexedPos, 3));
                     occluderGeo.computeVertexNormals();
 
                     const occluderMat = new THREE.MeshBasicMaterial({
                         color: 0x0a0a0c,
-                        side: THREE.FrontSide,
+                        side: THREE.DoubleSide,
                         depthWrite: true,
                         depthTest: true,
                         polygonOffset: true,
