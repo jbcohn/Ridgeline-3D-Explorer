@@ -1478,42 +1478,58 @@
             }
 
             if (renderStyle === 'fe_gradual') {
-                // --- Quality Adaptive Delaunay TIN Mesh (Chew's Second Algorithm + Spatial Poisson Rejection) ---
-                const baseRes = Math.max(20, Math.floor(nLines * 0.55));
-                const eps = 0.01;
+                // --- Quality Adaptive Delaunay TIN Mesh (Curvature, Slope & Prominence Guided) ---
+                const baseRes = Math.max(24, Math.floor(nLines * 0.65));
+                const eps = 0.008;
 
-                function getSlope(u, v) {
-                    const hx = sampleDEM(grid, rows, cols, Math.min(1, u + eps), v) - sampleDEM(grid, rows, cols, Math.max(0, u - eps), v);
-                    const hy = sampleDEM(grid, rows, cols, u, Math.min(1, v + eps)) - sampleDEM(grid, rows, cols, u, Math.max(0, v - eps));
-                    return Math.sqrt(hx * hx + hy * hy);
+                function getTerrainMetrics(u, v) {
+                    const hC = sampleDEM(grid, rows, cols, u, v);
+                    const hE = sampleDEM(grid, rows, cols, Math.min(1, u + eps), v);
+                    const hW = sampleDEM(grid, rows, cols, Math.max(0, u - eps), v);
+                    const hS = sampleDEM(grid, rows, cols, u, Math.min(1, v + eps));
+                    const hN = sampleDEM(grid, rows, cols, u, Math.max(0, v - eps));
+
+                    const slope = Math.hypot(hE - hW, hS - hN);
+                    // 2D discrete Laplacian for ridge crests, peaks, saddles, and canyon rims
+                    const curvature = Math.abs(hE + hW + hS + hN - 4.0 * hC);
+                    return { slope, curvature };
                 }
 
-                let maxS = 0.001;
-                for (let r = 0; r < 20; r++) {
-                    for (let c = 0; c < 20; c++) {
-                        const s = getSlope(c / 19, r / 19);
-                        if (s > maxS) maxS = s;
+                let maxS = 0.001, maxC = 0.001;
+                for (let r = 0; r < 24; r++) {
+                    for (let c = 0; c < 24; c++) {
+                        const m = getTerrainMetrics(c / 23, r / 23);
+                        if (m.slope > maxS) maxS = m.slope;
+                        if (m.curvature > maxC) maxC = m.curvature;
                     }
                 }
 
                 function getTargetSpacing(u, v) {
-                    const sRatio = getSlope(u, v) / maxS;
+                    const m = getTerrainMetrics(u, v);
+                    const sRatio = m.slope / maxS;
+                    const cRatio = m.curvature / maxC;
                     const hVal = sampleDEM(grid, rows, cols, u, v);
                     const hRatio = Math.max(0, Math.min(1, (hVal - minElev) / spanElev));
-                    const importance = 0.15 + 0.85 * Math.pow(sRatio * 0.65 + hRatio * 0.35, 1.25);
-                    return (1.0 / baseRes) * (1.2 / (1.0 + 2.5 * importance));
+
+                    // Combined feature importance: slope (40%), ridge curvature (40%), elevation (20%)
+                    const featureScore = sRatio * 0.40 + cRatio * 0.40 + hRatio * 0.20;
+                    const importance = Math.min(1.0, Math.pow(featureScore, 1.15));
+
+                    // Dynamic spacing: allocates up to 4.5x higher triangle density along ridges/peaks, while valleys stay clean
+                    const spacingMult = 1.30 / (1.0 + 3.8 * importance);
+                    return (1.0 / baseRes) * spacingMult;
                 }
 
                 // 1. Spatial Poisson-Disk Sampling to eliminate coincident / sliver points
                 const rawPoints = [];
-                const cellSize = 0.5 / baseRes;
+                const cellSize = 0.35 / baseRes;
                 const gridCols = Math.ceil(1.0 / cellSize);
                 const spatialGrid = new Int32Array(gridCols * gridCols).fill(-1);
 
                 function addPoint(x, y) {
                     x = Math.max(0, Math.min(1, x));
                     y = Math.max(0, Math.min(1, y));
-                    const r = getTargetSpacing(x, y) * 0.7;
+                    const r = getTargetSpacing(x, y) * 0.68;
                     const gx = Math.floor(x / cellSize), gy = Math.floor(y / cellSize);
 
                     const minGx = Math.max(0, gx - 2), maxGx = Math.min(gridCols - 1, gx + 2);
@@ -1554,10 +1570,11 @@
                         const jitV = (hash2D(c * 43.1, r * 19.9) - 0.5) * jitScale;
                         addPoint(u + jitU, v + jitV);
 
-                        if (targetR < 0.6 / baseRes) {
-                            for (let k = 0; k < 3; k++) {
-                                const su = u + (hash2D(r * 53.1 + k * 11.3, c * 29.7 + k * 7.1) - 0.5) * targetR * 1.5;
-                                const sv = v + (hash2D(c * 67.3 + k * 13.9, r * 37.1 + k * 17.3) - 0.5) * targetR * 1.5;
+                        if (targetR < 0.55 / baseRes) {
+                            const extraPts = (targetR < 0.35 / baseRes) ? 4 : 2;
+                            for (let k = 0; k < extraPts; k++) {
+                                const su = u + (hash2D(r * 53.1 + k * 11.3, c * 29.7 + k * 7.1) - 0.5) * targetR * 1.8;
+                                const sv = v + (hash2D(c * 67.3 + k * 13.9, r * 37.1 + k * 17.3) - 0.5) * targetR * 1.8;
                                 addPoint(su, sv);
                             }
                         }
