@@ -527,7 +527,7 @@
                         <div class="ui-group">
                             <div class="ui-label">Render Mode</div>
                             <select id="style-select">
-                                <option value="fe_gradual" selected>Adaptive Mesh (RTIN)</option>
+                                <option value="fe_gradual" selected>Adaptive Mesh</option>
                                 <option value="fe_wireframe">Direct 3D Elevation Grid</option>
                                 <option value="ridgeline">Stacked Ridgelines</option>
                             </select>
@@ -1587,50 +1587,157 @@
             }
 
             if (renderStyle === 'fe_gradual') {
-                // --- Ultra-Fast High-Fidelity RTIN Adaptive Mesh (Mapbox Martini Algorithm) ---
-                const gridSize = 257;
-                const terrain = new Float32Array(gridSize * gridSize);
+                // --- Quality Adaptive Delaunay TIN Mesh (Chew's Second Algorithm + Spatial Poisson Rejection) ---
+                const baseRes = Math.max(20, Math.floor(nLines * 0.55));
+                const eps = 0.01;
 
-                for (let r = 0; r < gridSize; r++) {
-                    const v = r / (gridSize - 1);
-                    const rFloat = v * (rows - 1);
-                    const r0 = Math.floor(rFloat), r1 = Math.min(rows - 1, r0 + 1);
-                    const dr = rFloat - r0;
-                    for (let c = 0; c < gridSize; c++) {
-                        const u = c / (gridSize - 1);
-                        const cFloat = u * (cols - 1);
-                        const c0 = Math.floor(cFloat), c1 = Math.min(cols - 1, c0 + 1);
-                        const dc = cFloat - c0;
-                        terrain[r * gridSize + c] = (grid[r0][c0] * (1 - dc) + grid[r0][c1] * dc) * (1 - dr) + (grid[r1][c0] * (1 - dc) + grid[r1][c1] * dc) * dr;
+                function getSlope(u, v) {
+                    const hx = sampleDEM(grid, rows, cols, Math.min(1, u + eps), v) - sampleDEM(grid, rows, cols, Math.max(0, u - eps), v);
+                    const hy = sampleDEM(grid, rows, cols, u, Math.min(1, v + eps)) - sampleDEM(grid, rows, cols, u, Math.max(0, v - eps));
+                    return Math.sqrt(hx * hx + hy * hy);
+                }
+
+                let maxS = 0.001;
+                for (let r = 0; r < 20; r++) {
+                    for (let c = 0; c < 20; c++) {
+                        const s = getSlope(c / 19, r / 19);
+                        if (s > maxS) maxS = s;
                     }
                 }
 
-                if (!window._martiniInstance || window._martiniInstance.gridSize !== gridSize) {
-                    window._martiniInstance = new Martini(gridSize);
+                function getTargetSpacing(u, v) {
+                    const sRatio = getSlope(u, v) / maxS;
+                    const hVal = sampleDEM(grid, rows, cols, u, v);
+                    const hRatio = Math.max(0, Math.min(1, (hVal - minElev) / spanElev));
+                    const importance = 0.15 + 0.85 * Math.pow(sRatio * 0.65 + hRatio * 0.35, 1.25);
+                    return (1.0 / baseRes) * (1.2 / (1.0 + 2.5 * importance));
                 }
-                const tile = window._martiniInstance.createTile(terrain);
 
-                // Error threshold controlled by nLines slider:
-                // Generates tens of thousands of crisp triangles along all canyons, ravines, and peaks in <3 ms!
-                const densityT = Math.max(0, Math.min(1, (nLines - 20) / 130));
-                const maxError = spanElev * (0.0004 + Math.pow(1.0 - densityT, 1.4) * 0.030);
-                const mesh = tile.getMesh(maxError);
+                // 1. Spatial Poisson-Disk Sampling to eliminate coincident / sliver points
+                const rawPoints = [];
+                const cellSize = 0.5 / baseRes;
+                const gridCols = Math.ceil(1.0 / cellSize);
+                const spatialGrid = new Int32Array(gridCols * gridCols).fill(-1);
 
-                const numVerts = mesh.vertices.length >> 1;
+                function addPoint(x, y) {
+                    x = Math.max(0, Math.min(1, x));
+                    y = Math.max(0, Math.min(1, y));
+                    const r = getTargetSpacing(x, y) * 0.7;
+                    const gx = Math.floor(x / cellSize), gy = Math.floor(y / cellSize);
+
+                    const minGx = Math.max(0, gx - 2), maxGx = Math.min(gridCols - 1, gx + 2);
+                    const minGy = Math.max(0, gy - 2), maxGy = Math.min(gridCols - 1, gy + 2);
+
+                    for (let j = minGy; j <= maxGy; j++) {
+                        for (let i = minGx; i <= maxGx; i++) {
+                            const pIdx = spatialGrid[j * gridCols + i];
+                            if (pIdx !== -1) {
+                                const px = rawPoints[2 * pIdx], py = rawPoints[2 * pIdx + 1];
+                                if ((x - px)**2 + (y - py)**2 < r * r) return false;
+                            }
+                        }
+                    }
+
+                    const idx = rawPoints.length >> 1;
+                    rawPoints.push(x, y);
+                    if (gx >= 0 && gx < gridCols && gy >= 0 && gy < gridCols) {
+                        spatialGrid[gy * gridCols + gx] = idx;
+                    }
+                    return true;
+                }
+
+                // Boundary points for sharp rectangular model borders
+                for (let i = 0; i <= baseRes; i++) {
+                    const t = i / baseRes;
+                    addPoint(t, 0); addPoint(t, 1);
+                    if (i > 0 && i < baseRes) { addPoint(0, t); addPoint(1, t); }
+                }
+
+                // Internal points with adaptive importance
+                for (let r = 1; r < baseRes; r++) {
+                    for (let c = 1; c < baseRes; c++) {
+                        const u = c / baseRes, v = r / baseRes;
+                        const targetR = getTargetSpacing(u, v);
+                        const jitScale = targetR * 0.45 * jitterAmount;
+                        const jitU = (hash2D(r * 17.3, c * 31.7) - 0.5) * jitScale;
+                        const jitV = (hash2D(c * 43.1, r * 19.9) - 0.5) * jitScale;
+                        addPoint(u + jitU, v + jitV);
+
+                        if (targetR < 0.6 / baseRes) {
+                            for (let k = 0; k < 3; k++) {
+                                const su = u + (hash2D(r * 53.1 + k * 11.3, c * 29.7 + k * 7.1) - 0.5) * targetR * 1.5;
+                                const sv = v + (hash2D(c * 67.3 + k * 13.9, r * 37.1 + k * 17.3) - 0.5) * targetR * 1.5;
+                                addPoint(su, sv);
+                            }
+                        }
+                    }
+                }
+
+                // 2. Chew's Second Algorithm (Circumcenter refinement to remove bad aspect triangles)
+                let delaunay = new FastDelaunay(rawPoints);
+
+                for (let pass = 0; pass < 2; pass++) {
+                    let added = 0;
+                    const numTriangles = delaunay.triangles.length / 3;
+                    for (let t = 0; t < numTriangles; t++) {
+                        const i0 = delaunay.triangles[t * 3], i1 = delaunay.triangles[t * 3 + 1], i2 = delaunay.triangles[t * 3 + 2];
+                        const x0 = rawPoints[2 * i0], y0 = rawPoints[2 * i0 + 1];
+                        const x1 = rawPoints[2 * i1], y1 = rawPoints[2 * i1 + 1];
+                        const x2 = rawPoints[2 * i2], y2 = rawPoints[2 * i2 + 1];
+
+                        const a = Math.hypot(x1 - x0, y1 - y0);
+                        const b = Math.hypot(x2 - x1, y2 - y1);
+                        const c = Math.hypot(x0 - x2, y0 - y2);
+                        const minEdge = Math.min(a, b, c);
+
+                        const cc = fdCircumcenter(x0, y0, x1, y1, x2, y2);
+                        const rad = Math.hypot(cc.x - x0, cc.y - y0);
+
+                        if (rad / (minEdge || 1e-5) > 1.25 && cc.x > 0.02 && cc.x < 0.98 && cc.y > 0.02 && cc.y < 0.98) {
+                            if (addPoint(cc.x, cc.y)) added++;
+                        }
+                    }
+                    if (added > 0) delaunay = new FastDelaunay(rawPoints);
+                    else break;
+                }
+
+                // 3. Centroidal Lloyd Relaxation for smooth, finite-element grade equilateral triangles
+                const numPts = rawPoints.length >> 1;
+                const neighbors = Array.from({ length: numPts }, () => []);
+                for (let i = 0; i < delaunay.triangles.length; i += 3) {
+                    const i0 = delaunay.triangles[i], i1 = delaunay.triangles[i + 1], i2 = delaunay.triangles[i + 2];
+                    neighbors[i0].push(i1, i2);
+                    neighbors[i1].push(i0, i2);
+                    neighbors[i2].push(i0, i1);
+                }
+
+                for (let i = 0; i < numPts; i++) {
+                    const px = rawPoints[2 * i], py = rawPoints[2 * i + 1];
+                    if (px <= 0.005 || px >= 0.995 || py <= 0.005 || py >= 0.995) continue;
+                    const nbrs = neighbors[i];
+                    if (nbrs.length === 0) continue;
+                    let sumX = 0, sumY = 0;
+                    for (let j = 0; j < nbrs.length; j++) {
+                        sumX += rawPoints[2 * nbrs[j]];
+                        sumY += rawPoints[2 * nbrs[j] + 1];
+                    }
+                    const cx = sumX / nbrs.length, cy = sumY / nbrs.length;
+                    rawPoints[2 * i] = px * 0.5 + cx * 0.5;
+                    rawPoints[2 * i + 1] = py * 0.5 + cy * 0.5;
+                }
+
+                // Final Delaunay triangulation
+                delaunay = new FastDelaunay(rawPoints);
+
                 const positions = [];
                 const colors = [];
-                const rawPoints = [];
 
-                for (let i = 0; i < numVerts; i++) {
-                    const gx = mesh.vertices[2 * i];
-                    const gy = mesh.vertices[2 * i + 1];
-                    const uN = gx / (gridSize - 1);
-                    const vN = gy / (gridSize - 1);
-                    rawPoints.push(uN, vN);
-
+                for (let i = 0; i < numPts; i++) {
+                    const uN = rawPoints[2 * i];
+                    const vN = rawPoints[2 * i + 1];
                     const xPos = (uN - 0.5) * width;
                     const zPos = (vN - 0.5) * depth;
-                    const elevVal = terrain[gy * gridSize + gx];
+                    const elevVal = sampleDEM(grid, rows, cols, uN, vN);
                     const yPos = (elevVal - minElev) * heightScale;
                     const hRatio = Math.min(1.0, Math.max(0.0, (elevVal - minElev) / spanElev));
                     const ptColor = getColor(hRatio);
@@ -1639,7 +1746,7 @@
                     colors.push(ptColor.r, ptColor.g, ptColor.b);
                 }
 
-                const indices = Array.from(mesh.triangles);
+                const indices = Array.from(delaunay.triangles);
 
                 // Build Adaptive Mesh with Barycentric Wireframe Shader
                 const adaptiveMesh = buildBarycentricMesh(indices, positions, colors, rawPoints, isShaded, shadingStyle, sunDir, grid, rows, cols, minElev, spanElev, heightScale, lineWidthVal);
