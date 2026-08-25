@@ -529,6 +529,7 @@
                             <select id="style-select">
                                 <option value="fe_gradual" selected>Adaptive Mesh</option>
                                 <option value="fe_wireframe">Direct 3D Elevation Grid</option>
+                                <option value="isocontour">Topographic Iso-Contours</option>
                                 <option value="ridgeline">Stacked Ridgelines</option>
                             </select>
                         </div>
@@ -1586,6 +1587,44 @@
                 return geo;
             }
 
+            function buildSegmentsRibbonGeometry(segments) {
+                const pos = [];
+                const colArr = [];
+                const prevArr = [];
+                const nextArr = [];
+                const sideArr = [];
+                const idx = [];
+
+                let vIdx = 0;
+                for (let s = 0; s < segments.length; s++) {
+                    const seg = segments[s];
+                    const p0 = seg.p0, p1 = seg.p1;
+                    const c0 = seg.col, c1 = seg.col;
+
+                    // Vertex 0: p0, side +1
+                    pos.push(p0.x, p0.y, p0.z); colArr.push(c0.r, c0.g, c0.b); prevArr.push(p0.x, p0.y, p0.z); nextArr.push(p1.x, p1.y, p1.z); sideArr.push(1.0);
+                    // Vertex 1: p0, side -1
+                    pos.push(p0.x, p0.y, p0.z); colArr.push(c0.r, c0.g, c0.b); prevArr.push(p0.x, p0.y, p0.z); nextArr.push(p1.x, p1.y, p1.z); sideArr.push(-1.0);
+                    // Vertex 2: p1, side +1
+                    pos.push(p1.x, p1.y, p1.z); colArr.push(c1.r, c1.g, c1.b); prevArr.push(p0.x, p0.y, p0.z); nextArr.push(p1.x, p1.y, p1.z); sideArr.push(1.0);
+                    // Vertex 3: p1, side -1
+                    pos.push(p1.x, p1.y, p1.z); colArr.push(c1.r, c1.g, c1.b); prevArr.push(p0.x, p0.y, p0.z); nextArr.push(p1.x, p1.y, p1.z); sideArr.push(-1.0);
+
+                    const i0 = vIdx, i1 = vIdx + 1, i2 = vIdx + 2, i3 = vIdx + 3;
+                    idx.push(i0, i1, i2, i2, i1, i3);
+                    vIdx += 4;
+                }
+
+                const geo = new THREE.BufferGeometry();
+                geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+                geo.setAttribute('color', new THREE.Float32BufferAttribute(colArr, 3));
+                geo.setAttribute('aPrev', new THREE.Float32BufferAttribute(prevArr, 3));
+                geo.setAttribute('aNext', new THREE.Float32BufferAttribute(nextArr, 3));
+                geo.setAttribute('aSide', new THREE.Float32BufferAttribute(sideArr, 1));
+                geo.setIndex(idx);
+                return geo;
+            }
+
             if (renderStyle === 'fe_gradual') {
                 // --- Quality Adaptive Delaunay TIN Mesh (Chew's Second Algorithm + Spatial Poisson Rejection) ---
                 const baseRes = Math.max(20, Math.floor(nLines * 0.55));
@@ -1796,6 +1835,108 @@
                 // Build Direct Grid with Barycentric Wireframe Shader
                 const directGridMesh = buildBarycentricMesh(indices, positions, colors, null, isShaded, shadingStyle, sunDir, grid, rows, cols, minElev, spanElev, heightScale, lineWidthVal);
                 ridgelineGroup.add(directGridMesh);
+
+            } else if (renderStyle === 'isocontour') {
+                // --- Topographic Iso-Elevation Contours (Iso2Mesh-Style Level-Set Marching) ---
+                if (isShaded) {
+                    const tRows = Math.min(rows, 90);
+                    const tCols = Math.min(cols, 90);
+                    const tPos = [];
+                    const tCol = [];
+                    const tIdx = [];
+
+                    for (let r = 0; r < tRows; r++) {
+                        const v = r / (tRows - 1);
+                        const zPos = (v - 0.5) * depth;
+
+                        for (let c = 0; c < tCols; c++) {
+                            const u = c / (tCols - 1);
+                            const xPos = (u - 0.5) * width;
+                            const elev = sampleDEM(grid, rows, cols, u, v);
+                            const yPos = (elev - minElev) * heightScale;
+                            const hRatio = Math.min(1.0, Math.max(0.0, (elev - minElev) / spanElev));
+                            const col = getColor(hRatio);
+
+                            tPos.push(xPos, yPos, zPos);
+                            tCol.push(col.r, col.g, col.b);
+                        }
+                    }
+
+                    for (let r = 0; r < tRows - 1; r++) {
+                        for (let c = 0; c < tCols - 1; c++) {
+                            const i0 = r * tCols + c;
+                            const i1 = r * tCols + (c + 1);
+                            const i2 = (r + 1) * tCols + c;
+                            const i3 = (r + 1) * tCols + (c + 1);
+                            tIdx.push(i0, i2, i1);
+                            tIdx.push(i1, i2, i3);
+                        }
+                    }
+
+                    const terrainMesh = buildBarycentricMesh(tIdx, tPos, tCol, null, true, shadingStyle, sunDir, grid, rows, cols, minElev, spanElev, heightScale, 0);
+                    ridgelineGroup.add(terrainMesh);
+                }
+
+                // Extract Marching Iso-Contours
+                const nLevels = Math.min(100, Math.max(12, Math.round(nLines * 0.75)));
+                const step = spanElev / (nLevels + 1);
+                const segments = [];
+                const sampleRows = Math.min(rows, 140);
+                const sampleCols = Math.min(cols, 140);
+
+                for (let lvl = 1; lvl <= nLevels; lvl++) {
+                    const isoVal = minElev + lvl * step;
+                    const hRatio = lvl / (nLevels + 1);
+                    const col = getColor(hRatio);
+
+                    for (let r = 0; r < sampleRows - 1; r++) {
+                        const v0 = r / (sampleRows - 1), v1 = (r + 1) / (sampleRows - 1);
+                        for (let c = 0; c < sampleCols - 1; c++) {
+                            const u0 = c / (sampleCols - 1), u1 = (c + 1) / (sampleCols - 1);
+                            const h00 = sampleDEM(grid, rows, cols, u0, v0);
+                            const h10 = sampleDEM(grid, rows, cols, u1, v0);
+                            const h01 = sampleDEM(grid, rows, cols, u0, v1);
+                            const h11 = sampleDEM(grid, rows, cols, u1, v1);
+
+                            const b0 = (h00 >= isoVal) ? 1 : 0;
+                            const b1 = (h10 >= isoVal) ? 1 : 0;
+                            const b2 = (h11 >= isoVal) ? 1 : 0;
+                            const b3 = (h01 >= isoVal) ? 1 : 0;
+                            const code = b0 | (b1 << 1) | (b2 << 2) | (b3 << 3);
+                            if (code === 0 || code === 15) continue;
+
+                            const tTop = (isoVal - h00) / (h10 - h00 || 1e-5);
+                            const pTop = { x: (u0 + tTop * (u1 - u0) - 0.5) * width, y: (isoVal - minElev) * heightScale + 0.04, z: (v0 - 0.5) * depth };
+                            const tRight = (isoVal - h10) / (h11 - h10 || 1e-5);
+                            const pRight = { x: (u1 - 0.5) * width, y: (isoVal - minElev) * heightScale + 0.04, z: (v0 + tRight * (v1 - v0) - 0.5) * depth };
+                            const tBottom = (isoVal - h01) / (h11 - h01 || 1e-5);
+                            const pBottom = { x: (u0 + tBottom * (u1 - u0) - 0.5) * width, y: (isoVal - minElev) * heightScale + 0.04, z: (v1 - 0.5) * depth };
+                            const tLeft = (isoVal - h00) / (h01 - h00 || 1e-5);
+                            const pLeft = { x: (u0 - 0.5) * width, y: (isoVal - minElev) * heightScale + 0.04, z: (v0 + tLeft * (v1 - v0) - 0.5) * depth };
+
+                            let pA, pB;
+                            switch (code) {
+                                case 1: case 14: pA = pLeft; pB = pTop; break;
+                                case 2: case 13: pA = pTop; pB = pRight; break;
+                                case 3: case 12: pA = pLeft; pB = pRight; break;
+                                case 4: case 11: pA = pRight; pB = pBottom; break;
+                                case 5: pA = pLeft; pB = pTop; segments.push({ p0: pA, p1: pB, col }); pA = pRight; pB = pBottom; break;
+                                case 6: case 9: pA = pTop; pB = pBottom; break;
+                                case 7: case 8: pA = pLeft; pB = pBottom; break;
+                                case 10: pA = pTop; pB = pRight; segments.push({ p0: pA, p1: pB, col }); pA = pLeft; pB = pBottom; break;
+                            }
+                            if (pA && pB) segments.push({ p0: pA, p1: pB, col });
+                        }
+                    }
+                }
+
+                if (segments.length > 0) {
+                    const ribbonGeo = buildSegmentsRibbonGeometry(segments);
+                    const ribbonMat = createRibbonMaterial(lineWidthVal);
+                    const ribbonMesh = new THREE.Mesh(ribbonGeo, ribbonMat);
+                    ribbonMesh.renderOrder = 2;
+                    ridgelineGroup.add(ribbonMesh);
+                }
 
             } else {
                 // --- Joy Division Stacked Ridgeline Slices ---
