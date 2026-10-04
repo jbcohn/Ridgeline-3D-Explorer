@@ -689,7 +689,7 @@
         const scene = new THREE.Scene();
         scene.background = new THREE.Color(0x0a0a0c);
 
-        const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 2000);
+        const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 1.0, 2000);
         camera.position.set(0, 60, 180);
 
         const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true, alpha: true });
@@ -1524,21 +1524,26 @@
                             vec4 nextClip = projectionMatrix * modelViewMatrix * vec4(aNext, 1.0);
                             vec4 prevClip = projectionMatrix * modelViewMatrix * vec4(aPrev, 1.0);
 
-                            vec2 currentScreen = currentClip.xy / currentClip.w;
-                            vec2 nextScreen = nextClip.xy / nextClip.w;
-                            vec2 prevScreen = prevClip.xy / prevClip.w;
+                            // Project to true pixel-space coordinates so line direction and normal are never distorted by canvas aspect ratio
+                            vec2 currentPixel = (currentClip.xy / currentClip.w) * (uResolution * 0.5);
+                            vec2 nextPixel = (nextClip.xy / nextClip.w) * (uResolution * 0.5);
+                            vec2 prevPixel = (prevClip.xy / prevClip.w) * (uResolution * 0.5);
 
-                            vec2 dir = normalize(nextScreen - prevScreen);
+                            vec2 dir = normalize(nextPixel - prevPixel);
                             if (length(dir) < 0.0001) {
-                                dir = normalize(nextScreen - currentScreen);
+                                dir = normalize(nextPixel - currentPixel);
                             }
                             if (length(dir) < 0.0001) {
                                 dir = vec2(1.0, 0.0);
                             }
 
+                            // Truly perpendicular screen-space normal vector
                             vec2 normal = vec2(-dir.y, dir.x);
-                            vec2 offset = normal * (uLineWidth / uResolution) * aSide;
-                            currentClip.xy += offset * currentClip.w;
+                            vec2 offsetNDC = (normal * (uLineWidth * 0.5) * aSide) / (uResolution * 0.5);
+                            currentClip.xy += offsetNDC * currentClip.w;
+
+                            // Subtle depth bias towards camera so line ribbons float cleanly above underlying terrain
+                            currentClip.z -= 0.0003 * currentClip.w;
 
                             gl_Position = currentClip;
                         }
@@ -1550,7 +1555,10 @@
                         }
                     `,
                     side: THREE.DoubleSide,
-                    transparent: false
+                    transparent: false,
+                    polygonOffset: true,
+                    polygonOffsetFactor: -1,
+                    polygonOffsetUnits: -2
                 });
             }
 
@@ -1960,6 +1968,132 @@
                 const angleDeg = sliderAngle ? ((parseInt(sliderAngle.value) % 180 + 180) % 180) : 90;
                 const ribbonMat = createRibbonMaterial(lineWidthVal);
 
+                // 1. Build a single continuous solid terrain occluder mesh (eliminates vertical slice guillotine gaps and Z-fighting)
+                const occPositions = [];
+                const occIndices = [];
+
+                // Precompute smoothed rows matching line smoothing
+                const smoothedGrid = [];
+                for (let r = 0; r < rows; r++) {
+                    smoothedGrid.push(smoothArray(grid[r], smoothWin));
+                }
+
+                // Top surface vertices
+                for (let r = 0; r < rows; r++) {
+                    const vNorm = r / (rows - 1);
+                    const zPos = (vNorm - 0.5) * depth;
+                    const rowData = smoothedGrid[r];
+                    for (let c = 0; c < cols; c++) {
+                        const uNorm = c / (cols - 1);
+                        const xPos = (uNorm - 0.5) * width;
+                        const yPos = (rowData[c] - minElev) * heightScale;
+                        occPositions.push(xPos, yPos, zPos);
+                    }
+                }
+
+                // Top surface quad triangulation
+                for (let r = 0; r < rows - 1; r++) {
+                    for (let c = 0; c < cols - 1; c++) {
+                        const i0 = r * cols + c;
+                        const i1 = r * cols + (c + 1);
+                        const i2 = (r + 1) * cols + c;
+                        const i3 = (r + 1) * cols + (c + 1);
+                        occIndices.push(i0, i2, i1);
+                        occIndices.push(i1, i2, i3);
+                    }
+                }
+
+                // Perimeter skirts down to baseY so the mountain volume is a solid block
+                const baseY = -20;
+
+                // South border (r = rows - 1)
+                const southBaseStart = occPositions.length / 3;
+                for (let c = 0; c < cols; c++) {
+                    const uNorm = c / (cols - 1);
+                    const xPos = (uNorm - 0.5) * width;
+                    const zPos = 0.5 * depth;
+                    occPositions.push(xPos, baseY, zPos);
+                }
+                const southRowStart = (rows - 1) * cols;
+                for (let c = 0; c < cols - 1; c++) {
+                    const topL = southRowStart + c;
+                    const topR = southRowStart + c + 1;
+                    const botL = southBaseStart + c;
+                    const botR = southBaseStart + c + 1;
+                    occIndices.push(topL, botL, topR);
+                    occIndices.push(topR, botL, botR);
+                }
+
+                // North border (r = 0)
+                const northBaseStart = occPositions.length / 3;
+                for (let c = 0; c < cols; c++) {
+                    const uNorm = c / (cols - 1);
+                    const xPos = (uNorm - 0.5) * width;
+                    const zPos = -0.5 * depth;
+                    occPositions.push(xPos, baseY, zPos);
+                }
+                for (let c = 0; c < cols - 1; c++) {
+                    const topL = c;
+                    const topR = c + 1;
+                    const botL = northBaseStart + c;
+                    const botR = northBaseStart + c + 1;
+                    occIndices.push(topL, topR, botL);
+                    occIndices.push(topR, botR, botL);
+                }
+
+                // West border (c = 0)
+                const westBaseStart = occPositions.length / 3;
+                for (let r = 0; r < rows; r++) {
+                    const vNorm = r / (rows - 1);
+                    const zPos = (vNorm - 0.5) * depth;
+                    const xPos = -0.5 * width;
+                    occPositions.push(xPos, baseY, zPos);
+                }
+                for (let r = 0; r < rows - 1; r++) {
+                    const topT = r * cols;
+                    const topB = (r + 1) * cols;
+                    const botT = westBaseStart + r;
+                    const botB = westBaseStart + r + 1;
+                    occIndices.push(topT, topB, botT);
+                    occIndices.push(topB, botB, botT);
+                }
+
+                // East border (c = cols - 1)
+                const eastBaseStart = occPositions.length / 3;
+                for (let r = 0; r < rows; r++) {
+                    const vNorm = r / (rows - 1);
+                    const zPos = (vNorm - 0.5) * depth;
+                    const xPos = 0.5 * width;
+                    occPositions.push(xPos, baseY, zPos);
+                }
+                for (let r = 0; r < rows - 1; r++) {
+                    const topT = r * cols + (cols - 1);
+                    const topB = (r + 1) * cols + (cols - 1);
+                    const botT = eastBaseStart + r;
+                    const botB = eastBaseStart + r + 1;
+                    occIndices.push(topT, botT, topB);
+                    occIndices.push(topB, botB, botT);
+                }
+
+                const occGeo = new THREE.BufferGeometry();
+                occGeo.setAttribute('position', new THREE.Float32BufferAttribute(occPositions, 3));
+                occGeo.setIndex(occIndices);
+
+                const occMat = new THREE.MeshBasicMaterial({
+                    color: 0x0a0a0c,
+                    side: THREE.DoubleSide,
+                    depthWrite: true,
+                    depthTest: true,
+                    polygonOffset: true,
+                    polygonOffsetFactor: 2,
+                    polygonOffsetUnits: 4
+                });
+                const occMesh = new THREE.Mesh(occGeo, occMat);
+                occMesh.isOccluder = true;
+                occMesh.renderOrder = -1;
+                ridgelineGroup.add(occMesh);
+
+                // 2. Generate smooth continuous stacked ridgeline ribbons across the terrain
                 if (angleDeg === 90) {
                     // Direct-row fast path for standard 90° (W-E) horizontal orientation
                     for (let l = 0; l < nLines; l++) {
@@ -1970,11 +2104,8 @@
                         const numPts = cols;
                         const linePts = [];
                         const lineCols = [];
-                        const fillPositions = [];
-                        const fillIndices = [];
 
                         const zPos = ((l / (nLines - 1)) - 0.5) * depth;
-                        const baseY = -20;
 
                         for (let c = 0; c < numPts; c++) {
                             const xPos = ((c / (numPts - 1)) - 0.5) * width;
@@ -1984,36 +2115,7 @@
 
                             linePts.push(new THREE.Vector3(xPos, yPos, zPos));
                             lineCols.push(ptColor);
-
-                            fillPositions.push(xPos, yPos, zPos);
-                            fillPositions.push(xPos, baseY, zPos);
                         }
-
-                        for (let c = 0; c < numPts - 1; c++) {
-                            const topL = c * 2;
-                            const botL = c * 2 + 1;
-                            const topR = (c + 1) * 2;
-                            const botR = (c + 1) * 2 + 1;
-
-                            fillIndices.push(topL, botL, topR);
-                            fillIndices.push(topR, botL, botR);
-                        }
-
-                        const fillGeo = new THREE.BufferGeometry();
-                        fillGeo.setAttribute('position', new THREE.Float32BufferAttribute(fillPositions, 3));
-                        fillGeo.setIndex(fillIndices);
-
-                        const fillMat = new THREE.MeshBasicMaterial({
-                            color: 0x0a0a0c,
-                            side: THREE.DoubleSide,
-                            polygonOffset: true,
-                            polygonOffsetFactor: 1,
-                            polygonOffsetUnits: 1
-                        });
-                        const fillMesh = new THREE.Mesh(fillGeo, fillMat);
-                        fillMesh.isOccluder = true;
-                        fillMesh.renderOrder = -1;
-                        ridgelineGroup.add(fillMesh);
 
                         const ribbonGeo = buildRibbonGeometry(linePts, lineCols);
                         const ribbonMesh = new THREE.Mesh(ribbonGeo, ribbonMat);
@@ -2030,7 +2132,6 @@
                     const hD = depth / 2;
                     const tMax = hW * Math.abs(cos) + hD * Math.abs(sin);
                     const tMin = -tMax;
-                    const baseY = -20;
 
                     for (let l = 0; l < nLines; l++) {
                         const frac = l / (nLines - 1);
@@ -2076,8 +2177,6 @@
 
                         const linePts = [];
                         const lineCols = [];
-                        const fillPositions = [];
-                        const fillIndices = [];
 
                         for (let c = 0; c < numPts; c++) {
                             const s = sMin + (c / (numPts - 1)) * (sMax - sMin);
@@ -2090,36 +2189,7 @@
 
                             linePts.push(new THREE.Vector3(x, y, z));
                             lineCols.push(ptColor);
-
-                            fillPositions.push(x, y, z);
-                            fillPositions.push(x, baseY, z);
                         }
-
-                        for (let c = 0; c < numPts - 1; c++) {
-                            const topL = c * 2;
-                            const botL = c * 2 + 1;
-                            const topR = (c + 1) * 2;
-                            const botR = (c + 1) * 2 + 1;
-
-                            fillIndices.push(topL, botL, topR);
-                            fillIndices.push(topR, botL, botR);
-                        }
-
-                        const fillGeo = new THREE.BufferGeometry();
-                        fillGeo.setAttribute('position', new THREE.Float32BufferAttribute(fillPositions, 3));
-                        fillGeo.setIndex(fillIndices);
-
-                        const fillMat = new THREE.MeshBasicMaterial({
-                            color: 0x0a0a0c,
-                            side: THREE.DoubleSide,
-                            polygonOffset: true,
-                            polygonOffsetFactor: 1,
-                            polygonOffsetUnits: 1
-                        });
-                        const fillMesh = new THREE.Mesh(fillGeo, fillMat);
-                        fillMesh.isOccluder = true;
-                        fillMesh.renderOrder = -1;
-                        ridgelineGroup.add(fillMesh);
 
                         const ribbonGeo = buildRibbonGeometry(linePts, lineCols);
                         const ribbonMesh = new THREE.Mesh(ribbonGeo, ribbonMat);
