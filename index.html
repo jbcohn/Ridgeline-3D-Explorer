@@ -517,6 +517,11 @@
                             <input type="range" id="slider-smooth" min="1" max="10" step="1" value="3">
                         </div>
                     </div>
+
+                    <div id="ridgeline-angle-group" class="ui-group" style="display: none; border-left: 3px solid #38bdf8; padding-left: 8px; margin-left: 2px;">
+                        <div class="ui-label">Ridgeline Angle <span id="val-angle" class="ui-value">90° (W-E)</span></div>
+                        <input type="range" id="slider-angle" min="0" max="179" step="1" value="90">
+                    </div>
                 </section>
 
                 <!-- Section 2: Render Style & Palette -->
@@ -719,6 +724,9 @@
         const valLines = document.getElementById('val-lines');
         const sliderSmooth = document.getElementById('slider-smooth');
         const valSmooth = document.getElementById('val-smooth');
+        const ridgelineAngleGroup = document.getElementById('ridgeline-angle-group');
+        const sliderAngle = document.getElementById('slider-angle');
+        const valAngle = document.getElementById('val-angle');
         const colorSelect = document.getElementById('color-select');
         const heatmapControlsGroup = document.getElementById('heatmap-controls-group');
         const heatmapPaletteSelect = document.getElementById('heatmap-palette-select');
@@ -1940,66 +1948,175 @@
 
             } else {
                 // --- Joy Division Stacked Ridgeline Slices ---
-                // Render Joy Division stacked ridgeline slices with controllable line ribbons
+                const angleDeg = sliderAngle ? ((parseInt(sliderAngle.value) % 180 + 180) % 180) : 90;
                 const ribbonMat = createRibbonMaterial(lineWidthVal);
 
-                for (let l = 0; l < nLines; l++) {
-                    const rIdx = Math.floor((l / (nLines - 1)) * (rows - 1));
-                    const rawRow = grid[rIdx];
-                    const smoothedRow = smoothArray(rawRow, smoothWin);
+                if (angleDeg === 90) {
+                    // Direct-row fast path for standard 90° (W-E) horizontal orientation
+                    for (let l = 0; l < nLines; l++) {
+                        const rIdx = Math.floor((l / (nLines - 1)) * (rows - 1));
+                        const rawRow = grid[rIdx];
+                        const smoothedRow = smoothArray(rawRow, smoothWin);
 
-                    const numPts = cols;
-                    const linePts = [];
-                    const lineCols = [];
-                    const fillPositions = [];
-                    const fillIndices = [];
+                        const numPts = cols;
+                        const linePts = [];
+                        const lineCols = [];
+                        const fillPositions = [];
+                        const fillIndices = [];
 
-                    const zPos = ((l / (nLines - 1)) - 0.5) * depth;
+                        const zPos = ((l / (nLines - 1)) - 0.5) * depth;
+                        const baseY = -20;
+
+                        for (let c = 0; c < numPts; c++) {
+                            const xPos = ((c / (numPts - 1)) - 0.5) * width;
+                            const yPos = (smoothedRow[c] - minElev) * heightScale;
+                            const hRatio = Math.min(1.0, Math.max(0.0, (smoothedRow[c] - minElev) / spanElev));
+                            const ptColor = getColor(hRatio);
+
+                            linePts.push(new THREE.Vector3(xPos, yPos, zPos));
+                            lineCols.push(ptColor);
+
+                            fillPositions.push(xPos, yPos, zPos);
+                            fillPositions.push(xPos, baseY, zPos);
+                        }
+
+                        for (let c = 0; c < numPts - 1; c++) {
+                            const topL = c * 2;
+                            const botL = c * 2 + 1;
+                            const topR = (c + 1) * 2;
+                            const botR = (c + 1) * 2 + 1;
+
+                            fillIndices.push(topL, botL, topR);
+                            fillIndices.push(topR, botL, botR);
+                        }
+
+                        const fillGeo = new THREE.BufferGeometry();
+                        fillGeo.setAttribute('position', new THREE.Float32BufferAttribute(fillPositions, 3));
+                        fillGeo.setIndex(fillIndices);
+
+                        const fillMat = new THREE.MeshBasicMaterial({
+                            color: 0x0a0a0c,
+                            side: THREE.DoubleSide,
+                            polygonOffset: true,
+                            polygonOffsetFactor: 1,
+                            polygonOffsetUnits: 1
+                        });
+                        const fillMesh = new THREE.Mesh(fillGeo, fillMat);
+                        fillMesh.isOccluder = true;
+                        fillMesh.renderOrder = -1;
+                        ridgelineGroup.add(fillMesh);
+
+                        const ribbonGeo = buildRibbonGeometry(linePts, lineCols);
+                        const ribbonMesh = new THREE.Mesh(ribbonGeo, ribbonMat);
+                        ribbonMesh.renderOrder = 0;
+                        ridgelineGroup.add(ribbonMesh);
+                    }
+                } else {
+                    // Arbitrary angle slicing across terrain [0° (N-S) to 179°]
+                    const rad = angleDeg * Math.PI / 180;
+                    const sin = Math.sin(rad);
+                    const cos = Math.cos(rad);
+
+                    const hW = width / 2;
+                    const hD = depth / 2;
+                    const tMax = hW * Math.abs(cos) + hD * Math.abs(sin);
+                    const tMin = -tMax;
                     const baseY = -20;
 
-                    for (let c = 0; c < numPts; c++) {
-                        const xPos = ((c / (numPts - 1)) - 0.5) * width;
-                        const yPos = (smoothedRow[c] - minElev) * heightScale;
-                        const hRatio = Math.min(1.0, Math.max(0.0, (smoothedRow[c] - minElev) / spanElev));
-                        const ptColor = getColor(hRatio);
+                    for (let l = 0; l < nLines; l++) {
+                        const frac = l / (nLines - 1);
+                        const t = tMin + frac * (tMax - tMin);
 
-                        linePts.push(new THREE.Vector3(xPos, yPos, zPos));
-                        lineCols.push(ptColor);
+                        let sMin = -Infinity;
+                        let sMax = Infinity;
 
-                        fillPositions.push(xPos, yPos, zPos);
-                        fillPositions.push(xPos, baseY, zPos);
+                        if (Math.abs(sin) > 1e-6) {
+                            const s1 = (-hW + t * cos) / sin;
+                            const s2 = ( hW + t * cos) / sin;
+                            sMin = Math.max(sMin, Math.min(s1, s2));
+                            sMax = Math.min(sMax, Math.max(s1, s2));
+                        } else {
+                            if (-t * cos < -hW - 1e-4 || -t * cos > hW + 1e-4) continue;
+                        }
+
+                        if (Math.abs(cos) > 1e-6) {
+                            const s1 = (-hD - t * sin) / cos;
+                            const s2 = ( hD - t * sin) / cos;
+                            sMin = Math.max(sMin, Math.min(s1, s2));
+                            sMax = Math.min(sMax, Math.max(s1, s2));
+                        } else {
+                            if (t * sin < -hD - 1e-4 || t * sin > hD + 1e-4) continue;
+                        }
+
+                        if (sMax - sMin < 1.0) continue;
+
+                        const numPts = Math.max(40, cols);
+                        const rawLine = new Float32Array(numPts);
+
+                        for (let c = 0; c < numPts; c++) {
+                            const s = sMin + (c / (numPts - 1)) * (sMax - sMin);
+                            const x = -t * cos + s * sin;
+                            const z =  t * sin + s * cos;
+
+                            const u = Math.max(0, Math.min(1, x / width + 0.5));
+                            const v = Math.max(0, Math.min(1, z / depth + 0.5));
+                            rawLine[c] = sampleDEM(grid, rows, cols, u, v);
+                        }
+
+                        const smoothedLine = smoothArray(rawLine, smoothWin);
+
+                        const linePts = [];
+                        const lineCols = [];
+                        const fillPositions = [];
+                        const fillIndices = [];
+
+                        for (let c = 0; c < numPts; c++) {
+                            const s = sMin + (c / (numPts - 1)) * (sMax - sMin);
+                            const x = -t * cos + s * sin;
+                            const z =  t * sin + s * cos;
+                            const elev = smoothedLine[c];
+                            const y = (elev - minElev) * heightScale;
+                            const hRatio = Math.min(1.0, Math.max(0.0, (elev - minElev) / spanElev));
+                            const ptColor = getColor(hRatio);
+
+                            linePts.push(new THREE.Vector3(x, y, z));
+                            lineCols.push(ptColor);
+
+                            fillPositions.push(x, y, z);
+                            fillPositions.push(x, baseY, z);
+                        }
+
+                        for (let c = 0; c < numPts - 1; c++) {
+                            const topL = c * 2;
+                            const botL = c * 2 + 1;
+                            const topR = (c + 1) * 2;
+                            const botR = (c + 1) * 2 + 1;
+
+                            fillIndices.push(topL, botL, topR);
+                            fillIndices.push(topR, botL, botR);
+                        }
+
+                        const fillGeo = new THREE.BufferGeometry();
+                        fillGeo.setAttribute('position', new THREE.Float32BufferAttribute(fillPositions, 3));
+                        fillGeo.setIndex(fillIndices);
+
+                        const fillMat = new THREE.MeshBasicMaterial({
+                            color: 0x0a0a0c,
+                            side: THREE.DoubleSide,
+                            polygonOffset: true,
+                            polygonOffsetFactor: 1,
+                            polygonOffsetUnits: 1
+                        });
+                        const fillMesh = new THREE.Mesh(fillGeo, fillMat);
+                        fillMesh.isOccluder = true;
+                        fillMesh.renderOrder = -1;
+                        ridgelineGroup.add(fillMesh);
+
+                        const ribbonGeo = buildRibbonGeometry(linePts, lineCols);
+                        const ribbonMesh = new THREE.Mesh(ribbonGeo, ribbonMat);
+                        ribbonMesh.renderOrder = 0;
+                        ridgelineGroup.add(ribbonMesh);
                     }
-
-                    for (let c = 0; c < numPts - 1; c++) {
-                        const topL = c * 2;
-                        const botL = c * 2 + 1;
-                        const topR = (c + 1) * 2;
-                        const botR = (c + 1) * 2 + 1;
-
-                        fillIndices.push(topL, botL, topR);
-                        fillIndices.push(topR, botL, botR);
-                    }
-
-                    const fillGeo = new THREE.BufferGeometry();
-                    fillGeo.setAttribute('position', new THREE.Float32BufferAttribute(fillPositions, 3));
-                    fillGeo.setIndex(fillIndices);
-
-                    const fillMat = new THREE.MeshBasicMaterial({
-                        color: 0x0a0a0c,
-                        side: THREE.DoubleSide,
-                        polygonOffset: true,
-                        polygonOffsetFactor: 1,
-                        polygonOffsetUnits: 1
-                    });
-                    const fillMesh = new THREE.Mesh(fillGeo, fillMat);
-                    fillMesh.isOccluder = true;
-                    fillMesh.renderOrder = -1;
-                    ridgelineGroup.add(fillMesh);
-
-                    const ribbonGeo = buildRibbonGeometry(linePts, lineCols);
-                    const ribbonMesh = new THREE.Mesh(ribbonGeo, ribbonMat);
-                    ribbonMesh.renderOrder = 0;
-                    ridgelineGroup.add(ribbonMesh);
                 }
             }
         }
@@ -2017,6 +2134,14 @@
             updateRidgelineMesh();
         });
 
+        function formatAngleLabel(deg) {
+            if (deg === 0) return '0° (N-S)';
+            if (deg === 90) return '90° (W-E)';
+            if (deg === 45) return '45° (NE-SW)';
+            if (deg === 135) return '135° (NW-SE)';
+            return `${deg}°`;
+        }
+
         function updateShadingUI() {
             const isRidgeline = (styleSelect.value === 'ridgeline');
             const shadedCheckboxGroup = document.getElementById('shaded-checkbox-group');
@@ -2029,6 +2154,17 @@
             } else {
                 shadingStyleGroup.style.display = 'none';
             }
+            if (ridgelineAngleGroup) {
+                ridgelineAngleGroup.style.display = isRidgeline ? 'block' : 'none';
+            }
+        }
+
+        if (sliderAngle) {
+            sliderAngle.addEventListener('input', (e) => {
+                const deg = parseInt(e.target.value);
+                if (valAngle) valAngle.textContent = formatAngleLabel(deg);
+                updateRidgelineMesh();
+            });
         }
 
         checkShaded.addEventListener('change', () => {
@@ -2480,13 +2616,14 @@
                     const colorSlug = colorSelect.value;
                     const isShadedChecked = (checkShaded && checkShaded.checked && styleSelect.value !== 'ridgeline');
                     const shadedSlug = isShadedChecked ? `${shadingStyleSelect.value}_` : '';
+                    const angleSlug = (styleSelect.value === 'ridgeline' && sliderAngle) ? `${sliderAngle.value}deg_` : '';
                     const exSlug = parseFloat(sliderExaggeration.value).toFixed(1).replace('.', 'p');
                     const linesSlug = sliderLines.value + 'lines';
                     const lwSlug = `lw${currentLineWidth.toFixed(1).replace('.', 'p')}`;
                     const bgSlug = isTransparent ? 'transparent' : 'darkbg';
                     const resSlug = `${exportW}x${exportH}`;
 
-                    const filename = `${regionSlug}_${modeSlug}_${shadedSlug}${colorSlug}_ex${exSlug}_${linesSlug}_${lwSlug}_${resSlug}_${bgSlug}.png`;
+                    const filename = `${regionSlug}_${modeSlug}_${shadedSlug}${angleSlug}${colorSlug}_ex${exSlug}_${linesSlug}_${lwSlug}_${resSlug}_${bgSlug}.png`;
 
                     const link = document.createElement('a');
                     link.download = filename;
