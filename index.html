@@ -611,6 +611,7 @@
                             <span class="info-icon" tabindex="0" title="Flight Controls Guide">ℹ️</span>
                             <div class="tooltip-box">
                                 <strong>✈️ Flight Mode Controls:</strong>
+                                • <b>+ / -</b>: Camera Zoom (Magnification)<br>
                                 • <b>F / R</b>: Move Toward / Away (Look Direction)<br>
                                 • <b>W / ↑</b>: Fly Forward (Horizontal)<br>
                                 • <b>S / ↓</b>: Fly Backward (Horizontal)<br>
@@ -636,6 +637,14 @@
                             <div class="ui-label">Speed <span id="val-speed" class="ui-value">80</span></div>
                             <input type="range" id="slider-speed" min="20" max="300" step="10" value="80">
                         </div>
+                    </div>
+
+                    <div class="ui-group">
+                        <div class="ui-label" style="display: flex; justify-content: space-between; align-items: center;">
+                            <span>Camera Magnification (+ / -) <span id="val-cam-zoom" class="ui-value">1.0x</span></span>
+                            <button id="btn-reset-zoom" type="button" style="background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.15); color: #94a3b8; font-size: 0.65rem; padding: 2px 7px; border-radius: 4px; cursor: pointer; transition: all 0.15s;">Reset (1x)</button>
+                        </div>
+                        <input type="range" id="slider-cam-zoom" min="0.2" max="6.0" step="0.05" value="1.0">
                     </div>
 
                     <div class="grid-2col">
@@ -2209,6 +2218,28 @@
         const navModeSelect = document.getElementById('nav-mode-select');
         const sliderSpeed = document.getElementById('slider-speed');
         const valSpeed = document.getElementById('val-speed');
+        const sliderCamZoom = document.getElementById('slider-cam-zoom');
+        const valCamZoom = document.getElementById('val-cam-zoom');
+        const btnResetZoom = document.getElementById('btn-reset-zoom');
+
+        function setCameraZoom(zoomVal) {
+            const clamped = Math.max(0.2, Math.min(6.0, zoomVal));
+            camera.zoom = clamped;
+            camera.updateProjectionMatrix();
+            if (sliderCamZoom) sliderCamZoom.value = clamped.toFixed(2);
+            if (valCamZoom) valCamZoom.textContent = clamped.toFixed(1) + 'x';
+        }
+
+        if (sliderCamZoom) {
+            sliderCamZoom.addEventListener('input', (e) => {
+                setCameraZoom(parseFloat(e.target.value));
+            });
+        }
+        if (btnResetZoom) {
+            btnResetZoom.addEventListener('click', () => {
+                setCameraZoom(1.0);
+            });
+        }
 
         navModeSelect.addEventListener('change', (e) => {
             navMode = e.target.value;
@@ -2229,13 +2260,22 @@
             });
         });
 
-        // Keyboard WASD & Arrow Key Flight Listeners
+        // Keyboard WASD, Arrow Key & Zoom (+/-) Listeners
         window.addEventListener('keydown', (e) => {
             if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' '].includes(e.key)) {
                 e.preventDefault();
                 if (document.activeElement && document.activeElement !== document.body) {
                     document.activeElement.blur();
                 }
+            }
+            if (['+', '=', '-', '_'].includes(e.key) || e.code === 'NumpadAdd' || e.code === 'NumpadSubtract') {
+                e.preventDefault();
+                if (document.activeElement && document.activeElement !== document.body) {
+                    document.activeElement.blur();
+                }
+                const isZoomIn = (e.key === '+' || e.key === '=' || e.code === 'NumpadAdd');
+                const zoomFactor = isZoomIn ? 1.08 : (1 / 1.08);
+                setCameraZoom(camera.zoom * zoomFactor);
             }
             keysPressed[e.key.toLowerCase()] = true;
             keysPressed['shift'] = e.shiftKey;
@@ -2336,6 +2376,7 @@
         if (btnFloatingCenter) btnFloatingCenter.addEventListener('click', () => {
             controls.target.set(0, 15, 0);
             camera.position.set(0, 60, 180);
+            setCameraZoom(1.0);
             controls.update();
         });
         if (btnFullscreen) {
@@ -2641,8 +2682,14 @@
 
         window.addEventListener('resize', updateLayoutAndCanvas);
 
-        // Trackpad Two-Finger Scroll Pan (scaled with current zoom distance)
+        // Trackpad / Mouse Wheel: Alt/Option + Scroll zooms optical magnification; Shift + Scroll pans
         container.addEventListener('wheel', (e) => {
+            if (e.altKey) {
+                e.preventDefault();
+                const factor = e.deltaY < 0 ? 1.08 : (1 / 1.08);
+                setCameraZoom(camera.zoom * factor);
+                return;
+            }
             if (e.shiftKey || isPanDragMode) {
                 e.preventDefault();
                 const distToTarget = Math.max(2.0, camera.position.distanceTo(controls.target));
