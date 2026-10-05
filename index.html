@@ -6,7 +6,7 @@
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
-    <title>3D Ridgeline Landscape Explorer</title>
+    <title>3D Ridgeline Landscape Explorer vers. 101</title>
     
     <!-- Google Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -158,6 +158,20 @@
             font-weight: 700;
             color: #38bdf8;
             letter-spacing: 0.05em;
+            display: flex;
+            align-items: center;
+        }
+        .app-version {
+            font-size: 0.65rem;
+            font-weight: 600;
+            color: #94a3b8;
+            background: rgba(255, 255, 255, 0.08);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            padding: 2px 6px;
+            border-radius: 4px;
+            margin-left: 8px;
+            letter-spacing: 0.02em;
+            text-transform: none;
         }
         #btn-close-panel {
             background: transparent;
@@ -487,7 +501,7 @@
             </div>
 
             <header id="panel-header">
-                <h1>RIDGELINE 3D</h1>
+                <h1>RIDGELINE 3D <span class="app-version">vers. 101</span></h1>
                 <button id="btn-close-panel" title="Close Panel">✕</button>
             </header>
 
@@ -1542,9 +1556,6 @@
                             vec2 offsetNDC = (normal * (uLineWidth * 0.5) * aSide) / (uResolution * 0.5);
                             currentClip.xy += offsetNDC * currentClip.w;
 
-                            // Forward depth bias towards camera so line ribbons float cleanly in front of their occluder curtains
-                            currentClip.z -= 0.0005 * currentClip.w;
-
                             gl_Position = currentClip;
                         }
                     `,
@@ -1986,6 +1997,67 @@
                 floorMesh.isOccluder = true;
                 floorMesh.renderOrder = -2;
                 ridgelineGroup.add(floorMesh);
+
+                // Solid perimeter walls along the 4 bounding box edges of the DEM
+                // Completely seals the 3D block from all camera angles, eliminating jagged edge comb cuts
+                const periPos = [];
+                const periIdx = [];
+                let periOffset = 0;
+
+                function addPerimeterEdge(x0, z0, x1, z1, u0, v0, u1, v1, numSegments) {
+                    for (let i = 0; i < numSegments; i++) {
+                        const fA = i / numSegments;
+                        const fB = (i + 1) / numSegments;
+                        const xA = x0 + fA * (x1 - x0);
+                        const zA = z0 + fA * (z1 - z0);
+                        const uA = u0 + fA * (u1 - u0);
+                        const vA = v0 + fA * (v1 - v0);
+                        const yA = (sampleDEM(grid, rows, cols, uA, vA) - minElev) * heightScale;
+
+                        const xB = x0 + fB * (x1 - x0);
+                        const zB = z0 + fB * (z1 - z0);
+                        const uB = u0 + fB * (u1 - u0);
+                        const vB = v0 + fB * (v1 - v0);
+                        const yB = (sampleDEM(grid, rows, cols, uB, vB) - minElev) * heightScale;
+
+                        const topA = periOffset;
+                        const botA = periOffset + 1;
+                        const topB = periOffset + 2;
+                        const botB = periOffset + 3;
+
+                        periPos.push(xA, yA, zA);
+                        periPos.push(xA, 0.0, zA);
+                        periPos.push(xB, yB, zB);
+                        periPos.push(xB, 0.0, zB);
+
+                        periIdx.push(topA, botA, topB);
+                        periIdx.push(topB, botA, botB);
+                        periOffset += 4;
+                    }
+                }
+
+                const hW = width / 2;
+                const hD = depth / 2;
+                const segsX = Math.min(cols, 120);
+                const segsZ = Math.min(rows, 120);
+
+                // North wall: v = 0, z = -hD, x from -hW to +hW
+                addPerimeterEdge(-hW, -hD, hW, -hD, 0, 0, 1, 0, segsX);
+                // East wall: u = 1, x = +hW, z from -hD to +hD
+                addPerimeterEdge(hW, -hD, hW, hD, 1, 0, 1, 1, segsZ);
+                // South wall: v = 1, z = +hD, x from +hW to -hW
+                addPerimeterEdge(hW, hD, -hW, hD, 1, 1, 0, 1, segsX);
+                // West wall: u = 0, x = -hW, z from +hD to -hD
+                addPerimeterEdge(-hW, hD, -hW, -hD, 0, 1, 0, 0, segsZ);
+
+                const periGeo = new THREE.BufferGeometry();
+                periGeo.setAttribute('position', new THREE.Float32BufferAttribute(periPos, 3));
+                periGeo.setIndex(periIdx);
+
+                const periMesh = new THREE.Mesh(periGeo, fillMat);
+                periMesh.isOccluder = true;
+                periMesh.renderOrder = -1;
+                ridgelineGroup.add(periMesh);
 
                 // Generate smooth continuous stacked ridgeline ribbons with slice occlusion curtains
                 if (angleDeg === 90) {
