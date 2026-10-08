@@ -6,12 +6,12 @@
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
-    <title>3D Ridgeline Landscape Explorer vers. 101</title>
+    <title>3D Ridgeline Landscape Explorer vers. 102</title>
     
     <!-- Google Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Jost:wght@400;500;600;700&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     
     <style>
         * {
@@ -49,6 +49,41 @@
             display: block;
             width: 100%;
             height: 100%;
+        }
+
+        /* Viewport Title Overlay */
+        #viewport-title-overlay {
+            position: absolute;
+            top: 7.8%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+            pointer-events: none;
+            z-index: 5;
+            display: none;
+            user-select: none;
+            white-space: nowrap;
+            transition: opacity 0.2s ease;
+        }
+        #viewport-title-overlay .viewport-title-text {
+            font-family: 'Futura', 'Jost', 'Outfit', sans-serif;
+            font-size: clamp(14px, 3.8vw, 38px);
+            font-weight: 600;
+            letter-spacing: 0.38em;
+            padding-left: 0.38em;
+            text-transform: uppercase;
+            text-shadow: 0 2px 8px rgba(0, 0, 0, 0.6);
+        }
+        #viewport-title-overlay .viewport-subtitle-text {
+            font-family: 'Futura', 'Jost', 'Outfit', sans-serif;
+            font-size: clamp(8px, 1.2vw, 13px);
+            font-weight: 500;
+            letter-spacing: 0.25em;
+            padding-left: 0.25em;
+            margin-top: 4px;
+            text-transform: uppercase;
+            opacity: 0.75;
+            text-shadow: 0 1px 4px rgba(0, 0, 0, 0.6);
         }
 
         /* Floating Corner Controls (Canvas Overlay) */
@@ -492,6 +527,12 @@
                     </svg>
                 </button>
             </div>
+
+            <!-- Live Viewport Title Overlay -->
+            <div id="viewport-title-overlay">
+                <div class="viewport-title-text"></div>
+                <div class="viewport-subtitle-text"></div>
+            </div>
         </div>
 
         <!-- Interactive Collapsible Control Panel -->
@@ -501,7 +542,7 @@
             </div>
 
             <header id="panel-header">
-                <h1>RIDGELINE 3D <span class="app-version">vers. 101</span></h1>
+                <h1>RIDGELINE 3D <span class="app-version">vers. 102</span></h1>
                 <button id="btn-close-panel" title="Close Panel">✕</button>
             </header>
 
@@ -691,7 +732,61 @@
                         </div>
                     </div>
 
-                    <button class="btn-primary" id="btn-export">Export Snapshot (PNG)</button>
+                    <!-- Title Options -->
+                    <div class="ui-group" style="padding-top: 10px; border-top: 1px solid rgba(255, 255, 255, 0.08); margin-top: 6px;">
+                        <label for="check-export-title" class="ui-label" style="margin: 0; cursor: pointer; display: flex; align-items: center; justify-content: space-between;">
+                            <span>Include Title on Export</span>
+                            <input type="checkbox" id="check-export-title" style="width: 16px; height: 16px; cursor: pointer; accent-color: #38bdf8;">
+                        </label>
+                    </div>
+
+                    <div id="export-title-details" style="display: none; padding-top: 4px;">
+                        <div class="ui-group">
+                            <div class="ui-label">Title Text</div>
+                            <input type="text" id="input-export-title" placeholder="e.g. MOUNT DIABLO" style="width: 100%; background: #0f172a; border: 1px solid rgba(255, 255, 255, 0.15); border-radius: 6px; padding: 7px 10px; color: #f8fafc; font-family: 'Outfit', sans-serif; font-size: 0.8rem; text-transform: uppercase;">
+                        </div>
+
+                        <div class="ui-group" style="padding-top: 6px;">
+                            <label for="check-export-subtitle" class="ui-label" style="margin: 0; cursor: pointer; display: flex; align-items: center; justify-content: space-between;">
+                                <span>Include Subtitle (Survey Info)</span>
+                                <input type="checkbox" id="check-export-subtitle" style="width: 15px; height: 15px; cursor: pointer; accent-color: #38bdf8;">
+                            </label>
+                        </div>
+
+                        <div id="export-subtitle-group" style="display: none; padding-top: 4px;">
+                            <input type="text" id="input-export-subtitle" placeholder="e.g. 3,849 FT // SAN FRANCISCO BAY AREA" style="width: 100%; background: #0f172a; border: 1px solid rgba(255, 255, 255, 0.15); border-radius: 6px; padding: 6px 10px; color: #94a3b8; font-family: 'Outfit', sans-serif; font-size: 0.72rem; text-transform: uppercase;">
+                        </div>
+
+                        <div class="grid-2col" style="padding-top: 6px;">
+                            <div class="ui-group">
+                                <div class="ui-label">Title Color</div>
+                                <select id="export-title-color">
+                                    <option value="auto" selected>Auto Contrast</option>
+                                    <option value="black">Black</option>
+                                    <option value="white">White</option>
+                                    <option value="accent">Sky Cyan</option>
+                                    <option value="gold">Warm Gold</option>
+                                </select>
+                            </div>
+                            <div class="ui-group">
+                                <div class="ui-label">Font Family</div>
+                                <select id="export-title-font">
+                                    <option value="futura" selected>Futura / Jost</option>
+                                    <option value="outfit">Outfit (Clean)</option>
+                                    <option value="sans">System Sans</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="ui-group" style="padding-top: 6px;">
+                            <label for="check-preview-title" class="ui-label" style="margin: 0; cursor: pointer; display: flex; align-items: center; justify-content: space-between;">
+                                <span>Preview on Viewport</span>
+                                <input type="checkbox" id="check-preview-title" checked style="width: 15px; height: 15px; cursor: pointer; accent-color: #38bdf8;">
+                            </label>
+                        </div>
+                    </div>
+
+                    <button class="btn-primary" id="btn-export" style="margin-top: 10px;">Export Snapshot (PNG)</button>
                 </section>
             </div>
         </div>
@@ -765,6 +860,231 @@
         const exportResSelect = document.getElementById('export-res-select');
         const exportBgSelect = document.getElementById('export-bg-select');
         const btnExport = document.getElementById('btn-export');
+
+        // Export Title UI References
+        const checkExportTitle = document.getElementById('check-export-title');
+        const exportTitleDetails = document.getElementById('export-title-details');
+        const inputExportTitle = document.getElementById('input-export-title');
+        const checkExportSubtitle = document.getElementById('check-export-subtitle');
+        const exportSubtitleGroup = document.getElementById('export-subtitle-group');
+        const inputExportSubtitle = document.getElementById('input-export-subtitle');
+        const exportTitleColor = document.getElementById('export-title-color');
+        const exportTitleFont = document.getElementById('export-title-font');
+        const checkPreviewTitle = document.getElementById('check-preview-title');
+        const viewportTitleOverlay = document.getElementById('viewport-title-overlay');
+
+        // Mountain Metadata for Title & Subtitle Survey Info (aligned with VJ Scene 4)
+        const MOUNTAIN_METADATA = {
+            diablo: {
+                title: "MOUNT DIABLO",
+                subtitle: "3,849 FT   //   SAN FRANCISCO BAY AREA"
+            },
+            diablo_closeup: {
+                title: "MOUNT DIABLO",
+                subtitle: "3,849 FT   //   SAN FRANCISCO BAY AREA"
+            },
+            shasta: {
+                title: "MOUNT SHASTA",
+                subtitle: "14,179 FT   //   CASCADE VOLCANIC ARC"
+            },
+            shasta_closeup: {
+                title: "MOUNT SHASTA",
+                subtitle: "14,179 FT   //   CASCADE VOLCANIC ARC"
+            },
+            tam: {
+                title: "MOUNT TAMALPAIS",
+                subtitle: "2,571 FT   //   MARIN COUNTY COASTAL RANGE"
+            },
+            tam_closeup: {
+                title: "MOUNT TAMALPAIS",
+                subtitle: "2,571 FT   //   MARIN COUNTY COASTAL RANGE"
+            },
+            whitney: {
+                title: "MOUNT WHITNEY",
+                subtitle: "14,505 FT   //   SIERRA NEVADA"
+            },
+            whitney_closeup: {
+                title: "MOUNT WHITNEY",
+                subtitle: "14,505 FT   //   SIERRA NEVADA"
+            },
+            monroe: {
+                title: "MONROE PEAK",
+                subtitle: "11,227 FT   //   SEVIER PLATEAU, UTAH"
+            },
+            monroe_peak: {
+                title: "MONROE PEAK",
+                subtitle: "11,227 FT   //   SEVIER PLATEAU, UTAH"
+            },
+            monroe_closeup: {
+                title: "MONROE PEAK",
+                subtitle: "11,227 FT   //   SEVIER PLATEAU, UTAH"
+            },
+            vaca: {
+                title: "MOUNT VACA",
+                subtitle: "2,819 FT   //   VACA MOUNTAINS"
+            },
+            vaca_closeup: {
+                title: "MOUNT VACA",
+                subtitle: "2,819 FT   //   VACA MOUNTAINS"
+            },
+            haleakala_closeup: {
+                title: "HALEAKALĀ",
+                subtitle: "10,023 FT   //   ISLAND OF MAUI, HAWAII"
+            },
+            everest: {
+                title: "MOUNT EVEREST",
+                subtitle: "29,032 FT   //   MAHALANGUR HIMALAYA"
+            },
+            everest_closeup: {
+                title: "MOUNT EVEREST",
+                subtitle: "29,032 FT   //   MAHALANGUR HIMALAYA"
+            },
+            mont_blanc: {
+                title: "MONT BLANC",
+                subtitle: "15,774 FT   //   GRAIAN ALPS, EUROPE"
+            },
+            bay_area: {
+                title: "SAN FRANCISCO BAY AREA",
+                subtitle: "TOPOGRAPHIC SURVEY   //   NORTHERN CALIFORNIA"
+            },
+            california: {
+                title: "CALIFORNIA",
+                subtitle: "ELEVATION RELIEF   //   PACIFIC COAST"
+            }
+        };
+
+        function getMountainInfo(key) {
+            if (MOUNTAIN_METADATA[key]) return MOUNTAIN_METADATA[key];
+            const dem = (typeof DEM_DATA !== 'undefined' && DEM_DATA[key]) ? DEM_DATA[key] : null;
+            let title = key.toUpperCase().replace(/_/g, ' ');
+            if (dem && dem.name) {
+                title = dem.name.toUpperCase();
+            }
+            let elev = "ELEVATION SURVEY";
+            if (dem && dem.max_elev) {
+                elev = `${Math.round(dem.max_elev * 3.28084).toLocaleString()} FT`;
+            }
+            return {
+                title: title,
+                subtitle: `${elev}   //   TOPOGRAPHIC RELIEF`
+            };
+        }
+
+        // Draw tracked text with precision centering and kerning
+        function drawTrackedText(ctx, text, centerX, centerY, trackingPx) {
+            if (!text) return;
+            if ('letterSpacing' in ctx) {
+                ctx.letterSpacing = `${trackingPx}px`;
+                ctx.fillText(text, centerX - trackingPx / 2, centerY);
+            } else {
+                const chars = text.split('');
+                const widths = chars.map(c => ctx.measureText(c).width);
+                const totalW = widths.reduce((a, b) => a + b, 0) + trackingPx * (chars.length - 1);
+                let curX = centerX - totalW / 2;
+                for (let i = 0; i < chars.length; i++) {
+                    ctx.fillText(chars[i], curX + widths[i] / 2, centerY);
+                    curX += widths[i] + trackingPx;
+                }
+            }
+        }
+
+        let titleUserEdited = false;
+        let subtitleUserEdited = false;
+
+        function syncMountainTitleFields(force = false) {
+            const info = getMountainInfo(currentRegion);
+            if (!titleUserEdited || force) {
+                if (inputExportTitle) inputExportTitle.value = info.title;
+                titleUserEdited = false;
+            }
+            if (!subtitleUserEdited || force) {
+                if (inputExportSubtitle) inputExportSubtitle.value = info.subtitle;
+                subtitleUserEdited = false;
+            }
+            updateTitleUIAndPreview();
+        }
+
+        function updateTitleUIAndPreview() {
+            if (!checkExportTitle) return;
+            const isTitleEnabled = checkExportTitle.checked;
+            if (exportTitleDetails) {
+                exportTitleDetails.style.display = isTitleEnabled ? 'block' : 'none';
+            }
+
+            const isSubtitleEnabled = checkExportSubtitle && checkExportSubtitle.checked;
+            if (exportSubtitleGroup) {
+                exportSubtitleGroup.style.display = (isTitleEnabled && isSubtitleEnabled) ? 'block' : 'none';
+            }
+
+            if (!viewportTitleOverlay) return;
+
+            const showPreview = isTitleEnabled && checkPreviewTitle && checkPreviewTitle.checked;
+            if (!showPreview) {
+                viewportTitleOverlay.style.display = 'none';
+                return;
+            }
+
+            const info = getMountainInfo(currentRegion);
+            const rawTitle = inputExportTitle ? inputExportTitle.value.trim() : '';
+            const displayTitle = (rawTitle || info.title).toUpperCase();
+
+            const rawSub = inputExportSubtitle ? inputExportSubtitle.value.trim() : '';
+            const displaySub = isSubtitleEnabled ? (rawSub || info.subtitle).toUpperCase() : '';
+
+            const titleEl = viewportTitleOverlay.querySelector('.viewport-title-text');
+            const subEl = viewportTitleOverlay.querySelector('.viewport-subtitle-text');
+
+            if (titleEl) {
+                titleEl.textContent = displayTitle;
+                const fontChoice = exportTitleFont ? exportTitleFont.value : 'futura';
+                let fontFamily = "'Futura', 'Jost', 'Outfit', sans-serif";
+                if (fontChoice === 'outfit') fontFamily = "'Outfit', sans-serif";
+                else if (fontChoice === 'sans') fontFamily = "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
+                titleEl.style.fontFamily = fontFamily;
+
+                const colorChoice = exportTitleColor ? exportTitleColor.value : 'auto';
+                let textColor = '#ffffff';
+                let textShadow = '0 2px 10px rgba(0, 0, 0, 0.7)';
+                if (colorChoice === 'black') {
+                    textColor = '#0f172a';
+                    textShadow = '0 0 3px rgba(255, 255, 255, 0.9), 0 0 10px rgba(255, 255, 255, 0.5)';
+                } else if (colorChoice === 'accent') {
+                    textColor = '#38bdf8';
+                    textShadow = '0 0 12px rgba(56, 189, 248, 0.6)';
+                } else if (colorChoice === 'gold') {
+                    textColor = '#f59e0b';
+                    textShadow = '0 0 12px rgba(245, 158, 11, 0.6)';
+                } else if (colorChoice === 'white') {
+                    textColor = '#ffffff';
+                    textShadow = '0 2px 10px rgba(0, 0, 0, 0.7)';
+                }
+                titleEl.style.color = textColor;
+                titleEl.style.textShadow = textShadow;
+            }
+
+            if (subEl) {
+                if (displaySub) {
+                    subEl.style.display = 'block';
+                    subEl.textContent = displaySub;
+                    const fontChoice = exportTitleFont ? exportTitleFont.value : 'futura';
+                    let fontFamily = "'Futura', 'Jost', 'Outfit', sans-serif";
+                    if (fontChoice === 'outfit') fontFamily = "'Outfit', sans-serif";
+                    else if (fontChoice === 'sans') fontFamily = "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
+                    subEl.style.fontFamily = fontFamily;
+
+                    const colorChoice = exportTitleColor ? exportTitleColor.value : 'auto';
+                    let subColor = 'rgba(255, 255, 255, 0.75)';
+                    if (colorChoice === 'black') subColor = 'rgba(15, 23, 42, 0.9)';
+                    else if (colorChoice === 'accent') subColor = 'rgba(56, 189, 248, 0.85)';
+                    else if (colorChoice === 'gold') subColor = 'rgba(245, 158, 11, 0.85)';
+                    subEl.style.color = subColor;
+                } else {
+                    subEl.style.display = 'none';
+                }
+            }
+
+            viewportTitleOverlay.style.display = 'block';
+        }
 
         // Populate Region Dropdown (Alphabetized by name)
         const sortedRegionKeys = Object.keys(DEM_DATA).sort((a, b) => {
@@ -2221,6 +2541,7 @@
             currentRegion = e.target.value;
             controls.target.set(0, 15, 0);
             controls.update();
+            syncMountainTitleFields(false);
             updateRidgelineMesh();
         });
 
@@ -2617,6 +2938,38 @@
             btnRotate.style.borderColor = autoRotate ? '#00e5ff' : 'rgba(255, 255, 255, 0.15)';
         });
 
+        // Title & Subtitle Export Settings Listeners
+        if (checkExportTitle) {
+            checkExportTitle.addEventListener('change', updateTitleUIAndPreview);
+        }
+        if (inputExportTitle) {
+            inputExportTitle.addEventListener('input', () => {
+                titleUserEdited = true;
+                updateTitleUIAndPreview();
+            });
+        }
+        if (checkExportSubtitle) {
+            checkExportSubtitle.addEventListener('change', updateTitleUIAndPreview);
+        }
+        if (inputExportSubtitle) {
+            inputExportSubtitle.addEventListener('input', () => {
+                subtitleUserEdited = true;
+                updateTitleUIAndPreview();
+            });
+        }
+        if (exportTitleColor) {
+            exportTitleColor.addEventListener('change', updateTitleUIAndPreview);
+        }
+        if (exportTitleFont) {
+            exportTitleFont.addEventListener('change', updateTitleUIAndPreview);
+        }
+        if (checkPreviewTitle) {
+            checkPreviewTitle.addEventListener('change', updateTitleUIAndPreview);
+        }
+        if (exportBgSelect) {
+            exportBgSelect.addEventListener('change', updateTitleUIAndPreview);
+        }
+
         btnExport.addEventListener('click', () => {
             const isTransparent = exportBgSelect.value === 'transparent';
             const resChoice = exportResSelect ? exportResSelect.value : '4000';
@@ -2707,7 +3060,83 @@
 
                     // Render ultra high-res snapshot frame
                     exportRenderer.render(scene, exportCamera);
-                    const dataURL = exportCanvas.toDataURL('image/png');
+
+                    let finalCanvas = exportCanvas;
+
+                    // Composite 2D title overlay if enabled
+                    if (checkExportTitle && checkExportTitle.checked) {
+                        const rawTitle = (inputExportTitle ? inputExportTitle.value : '').trim();
+                        const info = getMountainInfo(currentRegion);
+                        const titleText = (rawTitle || info.title).toUpperCase();
+
+                        const includeSubtitle = checkExportSubtitle && checkExportSubtitle.checked;
+                        const rawSubtitle = (inputExportSubtitle ? inputExportSubtitle.value : '').trim();
+                        const subtitleText = includeSubtitle ? (rawSubtitle || info.subtitle).toUpperCase() : '';
+
+                        if (titleText) {
+                            const compositeCanvas = document.createElement('canvas');
+                            compositeCanvas.width = exportW;
+                            compositeCanvas.height = exportH;
+                            const ctx = compositeCanvas.getContext('2d');
+
+                            // Draw the rendered 3D scene first
+                            ctx.drawImage(exportCanvas, 0, 0);
+
+                            // Proportions calibrated to reference image:
+                            // Cap-height ~ 4.65% of canvas height => font size ~ 5.8% of exportH
+                            const titleFontSize = Math.max(16, Math.round(exportH * 0.058));
+                            const titleTracking = Math.round(titleFontSize * 0.38);
+                            const titleY = Math.round(exportH * 0.078);
+
+                            const fontChoice = exportTitleFont ? exportTitleFont.value : 'futura';
+                            let fontFamily = "'Futura', 'Jost', 'Outfit', sans-serif";
+                            if (fontChoice === 'outfit') {
+                                fontFamily = "'Outfit', sans-serif";
+                            } else if (fontChoice === 'sans') {
+                                fontFamily = "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif";
+                            }
+
+                            const colorChoice = exportTitleColor ? exportTitleColor.value : 'auto';
+                            let resolvedColor = '#000000';
+                            if (colorChoice === 'auto') {
+                                resolvedColor = isTransparent ? '#000000' : '#ffffff';
+                            } else if (colorChoice === 'black') {
+                                resolvedColor = '#000000';
+                            } else if (colorChoice === 'white') {
+                                resolvedColor = '#ffffff';
+                            } else if (colorChoice === 'accent') {
+                                resolvedColor = '#38bdf8';
+                            } else if (colorChoice === 'gold') {
+                                resolvedColor = '#f59e0b';
+                            }
+
+                            ctx.save();
+                            ctx.textAlign = 'center';
+                            ctx.textBaseline = 'middle';
+                            ctx.font = `600 ${titleFontSize}px ${fontFamily}`;
+                            ctx.fillStyle = resolvedColor;
+
+                            drawTrackedText(ctx, titleText, exportW / 2, titleY, titleTracking);
+
+                            if (includeSubtitle && subtitleText) {
+                                const subFontSize = Math.max(10, Math.round(titleFontSize * 0.30));
+                                const subTracking = Math.round(subFontSize * 0.28);
+                                const subY = titleY + Math.round(titleFontSize * 0.82);
+                                ctx.font = `500 ${subFontSize}px ${fontFamily}`;
+                                if (colorChoice === 'auto' || colorChoice === 'black' || colorChoice === 'white') {
+                                    ctx.fillStyle = (resolvedColor === '#000000') ? 'rgba(0, 0, 0, 0.75)' : 'rgba(255, 255, 255, 0.75)';
+                                } else {
+                                    ctx.fillStyle = resolvedColor;
+                                }
+                                drawTrackedText(ctx, subtitleText, exportW / 2, subY, subTracking);
+                            }
+                            ctx.restore();
+
+                            finalCanvas = compositeCanvas;
+                        }
+                    }
+
+                    const dataURL = finalCanvas.toDataURL('image/png');
 
                     // Restore live viewport state and line widths
                     if (isTransparent) {
@@ -2749,8 +3178,9 @@
                     const lwSlug = `lw${currentLineWidth.toFixed(1).replace('.', 'p')}`;
                     const bgSlug = isTransparent ? 'transparent' : 'darkbg';
                     const resSlug = `${exportW}x${exportH}`;
+                    const titleSlug = (checkExportTitle && checkExportTitle.checked) ? '_titled' : '';
 
-                    const filename = `${regionSlug}_${modeSlug}_${shadedSlug}${angleSlug}${colorSlug}_ex${exSlug}_${linesSlug}_${lwSlug}_${resSlug}_${bgSlug}.png`;
+                    const filename = `${regionSlug}_${modeSlug}_${shadedSlug}${angleSlug}${colorSlug}_ex${exSlug}_${linesSlug}_${lwSlug}_${resSlug}_${bgSlug}${titleSlug}.png`;
 
                     const link = document.createElement('a');
                     link.download = filename;
@@ -2939,6 +3369,7 @@
         }
 
         // Initial Build & Layout Initialization
+        syncMountainTitleFields(true);
         updateShadingUI();
         updateHeatmapUI();
         updateRidgelineMesh();
