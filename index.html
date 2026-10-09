@@ -6,7 +6,7 @@
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
-    <title>3D Ridgeline Landscape Explorer vers. 103</title>
+    <title>3D Ridgeline Landscape Explorer vers. 104</title>
     
     <!-- Google Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -542,7 +542,7 @@
             </div>
 
             <header id="panel-header">
-                <h1>RIDGELINE 3D <span class="app-version">vers. 103</span></h1>
+                <h1>RIDGELINE 3D <span class="app-version">vers. 104</span></h1>
                 <button id="btn-close-panel" title="Close Panel">✕</button>
             </header>
 
@@ -2541,10 +2541,10 @@
                             const hRatio = Math.min(1.0, Math.max(0.0, (elev - minElev) / spanElev));
                             const ptColor = getColor(hRatio);
 
-                            linePts.push(new THREE.Vector3(x, y, z));
+                            linePts.push(new THREE.Vector3(x, yPos, z));
                             lineCols.push(ptColor);
 
-                            fillPositions.push(x, y, z);
+                            fillPositions.push(x, yPos, z);
                             fillPositions.push(x, baseY, z);
                         }
 
