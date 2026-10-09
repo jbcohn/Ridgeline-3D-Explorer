@@ -6,7 +6,7 @@
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
-    <title>3D Ridgeline Landscape Explorer vers. 102</title>
+    <title>3D Ridgeline Landscape Explorer vers. 103</title>
     
     <!-- Google Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -542,7 +542,7 @@
             </div>
 
             <header id="panel-header">
-                <h1>RIDGELINE 3D <span class="app-version">vers. 102</span></h1>
+                <h1>RIDGELINE 3D <span class="app-version">vers. 103</span></h1>
                 <button id="btn-close-panel" title="Close Panel">✕</button>
             </header>
 
@@ -573,9 +573,15 @@
                         </div>
                     </div>
 
-                    <div id="ridgeline-angle-group" class="ui-group" style="display: none; border-left: 3px solid #38bdf8; padding-left: 8px; margin-left: 2px;">
-                        <div class="ui-label">Ridgeline Angle <span id="val-angle" class="ui-value">90° (W-E)</span></div>
-                        <input type="range" id="slider-angle" min="0" max="179" step="1" value="90">
+                    <div class="grid-2col">
+                        <div class="ui-group">
+                            <div class="ui-label">Edge Taper <span id="val-taper" class="ui-value">10%</span></div>
+                            <input type="range" id="slider-taper" min="0" max="25" step="1" value="10" title="Smoothly fade border elevation to baseline to eliminate ragged edges">
+                        </div>
+                        <div id="ridgeline-angle-group" class="ui-group" style="display: none; border-left: 3px solid #38bdf8; padding-left: 8px; margin-left: 2px;">
+                            <div class="ui-label">Ridgeline Angle <span id="val-angle" class="ui-value">90° (W-E)</span></div>
+                            <input type="range" id="slider-angle" min="0" max="179" step="1" value="90">
+                        </div>
                     </div>
                 </section>
 
@@ -842,6 +848,8 @@
         const valLines = document.getElementById('val-lines');
         const sliderSmooth = document.getElementById('slider-smooth');
         const valSmooth = document.getElementById('val-smooth');
+        const sliderTaper = document.getElementById('slider-taper');
+        const valTaper = document.getElementById('val-taper');
         const ridgelineAngleGroup = document.getElementById('ridgeline-angle-group');
         const sliderAngle = document.getElementById('slider-angle');
         const valAngle = document.getElementById('val-angle');
@@ -1545,6 +1553,19 @@
             const heightScale = (width / realWidthM) * exaggeration;
 
             const lineWidthVal = sliderLineWidth ? (parseFloat(sliderLineWidth.value) || 1.5) : 1.5;
+            const taperPercent = sliderTaper ? (parseFloat(sliderTaper.value) || 0) : 10;
+            const taperMargin = taperPercent / 100.0;
+
+            function getTaperWeight(u, v) {
+                if (taperMargin <= 0.001) return 1.0;
+                const du = Math.min(u, 1.0 - u);
+                const dv = Math.min(v, 1.0 - v);
+                const wu = Math.min(1.0, du / taperMargin);
+                const wv = Math.min(1.0, dv / taperMargin);
+                const tu = 0.5 * (1.0 - Math.cos(Math.PI * wu));
+                const tv = 0.5 * (1.0 - Math.cos(Math.PI * wv));
+                return tu * tv;
+            }
 
             // Multi-stop color interpolation helper
             function interpolateColors(c0, c1, t) {
@@ -1638,7 +1659,7 @@
                 return sinVal - Math.floor(sinVal);
             }
 
-            function sampleDEM(grid, rows, cols, u, v) {
+            function sampleDEM(grid, rows, cols, u, v, applyTaper = true) {
                 u = Math.max(0, Math.min(1, u));
                 v = Math.max(0, Math.min(1, v));
 
@@ -1661,7 +1682,12 @@
                 const top = h00 * (1 - dc) + h01 * dc;
                 const bot = h10 * (1 - dc) + h11 * dc;
 
-                return top * (1 - dr) + bot * dr;
+                let elev = top * (1 - dr) + bot * dr;
+                if (applyTaper && taperMargin > 0.001) {
+                    const w = getTaperWeight(u, v);
+                    elev = minElev + (elev - minElev) * w;
+                }
+                return elev;
             }
 
             // Fixed sun direction for true directional 3D relief
@@ -2396,10 +2422,18 @@
 
                         const zPos = ((l / (nLines - 1)) - 0.5) * depth;
 
+                        const v = l / (nLines - 1);
+
                         for (let c = 0; c < numPts; c++) {
-                            const xPos = ((c / (numPts - 1)) - 0.5) * width;
-                            const yPos = (smoothedRow[c] - minElev) * heightScale;
-                            const hRatio = Math.min(1.0, Math.max(0.0, (smoothedRow[c] - minElev) / spanElev));
+                            const u = c / (numPts - 1);
+                            const xPos = (u - 0.5) * width;
+                            let elev = smoothedRow[c];
+                            if (taperMargin > 0.001) {
+                                const w = getTaperWeight(u, v);
+                                elev = minElev + (elev - minElev) * w;
+                            }
+                            const yPos = (elev - minElev) * heightScale;
+                            const hRatio = Math.min(1.0, Math.max(0.0, (elev - minElev) / spanElev));
                             const ptColor = getColor(hRatio);
 
                             linePts.push(new THREE.Vector3(xPos, yPos, zPos));
@@ -2481,7 +2515,7 @@
 
                             const u = Math.max(0, Math.min(1, x / width + 0.5));
                             const v = Math.max(0, Math.min(1, z / depth + 0.5));
-                            rawLine[c] = sampleDEM(grid, rows, cols, u, v);
+                            rawLine[c] = sampleDEM(grid, rows, cols, u, v, true);
                         }
 
                         const smoothedLine = smoothArray(rawLine, smoothWin);
@@ -2496,8 +2530,14 @@
                             const s = sMin + (c / (numPts - 1)) * (sMax - sMin);
                             const x = -t * cos + s * sin;
                             const z =  t * sin + s * cos;
-                            const elev = smoothedLine[c];
-                            const y = (elev - minElev) * heightScale;
+                            const u = Math.max(0, Math.min(1, x / width + 0.5));
+                            const v = Math.max(0, Math.min(1, z / depth + 0.5));
+                            let elev = smoothedLine[c];
+                            if (taperMargin > 0.001) {
+                                const w = getTaperWeight(u, v);
+                                elev = minElev + (elev - minElev) * w;
+                            }
+                            const yPos = (elev - minElev) * heightScale;
                             const hRatio = Math.min(1.0, Math.max(0.0, (elev - minElev) / spanElev));
                             const ptColor = getColor(hRatio);
 
@@ -2616,6 +2656,13 @@
             valSmooth.textContent = e.target.value;
             updateRidgelineMesh();
         });
+
+        if (sliderTaper) {
+            sliderTaper.addEventListener('input', (e) => {
+                valTaper.textContent = `${e.target.value}%`;
+                updateRidgelineMesh();
+            });
+        }
 
         // --- Navigation Mode & Flight Control State ---
         let navMode = 'flight';
@@ -3178,9 +3225,10 @@
                     const lwSlug = `lw${currentLineWidth.toFixed(1).replace('.', 'p')}`;
                     const bgSlug = isTransparent ? 'transparent' : 'darkbg';
                     const resSlug = `${exportW}x${exportH}`;
+                    const taperSlug = (sliderTaper && parseInt(sliderTaper.value) > 0) ? `tap${sliderTaper.value}p_` : '';
                     const titleSlug = (checkExportTitle && checkExportTitle.checked) ? '_titled' : '';
 
-                    const filename = `${regionSlug}_${modeSlug}_${shadedSlug}${angleSlug}${colorSlug}_ex${exSlug}_${linesSlug}_${lwSlug}_${resSlug}_${bgSlug}${titleSlug}.png`;
+                    const filename = `${regionSlug}_${modeSlug}_${shadedSlug}${angleSlug}${taperSlug}${colorSlug}_ex${exSlug}_${linesSlug}_${lwSlug}_${resSlug}_${bgSlug}${titleSlug}.png`;
 
                     const link = document.createElement('a');
                     link.download = filename;
