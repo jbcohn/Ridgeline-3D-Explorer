@@ -6,7 +6,7 @@
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
-    <title>3D Ridgeline Landscape Explorer vers. 107</title>
+    <title>3D Ridgeline Landscape Explorer vers. 108</title>
     
     <!-- Google Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -542,7 +542,7 @@
             </div>
 
             <header id="panel-header">
-                <h1>RIDGELINE 3D <span class="app-version">vers. 107</span></h1>
+                <h1>RIDGELINE 3D <span class="app-version">vers. 108</span></h1>
                 <button id="btn-close-panel" title="Close Panel">✕</button>
             </header>
 
@@ -792,6 +792,61 @@
                         </div>
                     </div>
 
+                    <!-- Shirt Breathability Knockout -->
+                    <div class="ui-group" style="padding-top: 10px; border-top: 1px solid rgba(255, 255, 255, 0.08); margin-top: 6px;">
+                        <label for="check-export-breathability" class="ui-label" style="margin: 0; cursor: pointer; display: flex; align-items: center; justify-content: space-between;">
+                            <span>Shirt Breathability Knockout</span>
+                            <input type="checkbox" id="check-export-breathability" style="width: 16px; height: 16px; cursor: pointer; accent-color: #38bdf8;">
+                        </label>
+                    </div>
+
+                    <div id="export-breathability-details" style="display: none; padding-top: 4px;">
+                        <div class="grid-2col">
+                            <div class="ui-group">
+                                <div class="ui-label">Pattern Style</div>
+                                <select id="export-knockout-pattern">
+                                    <option value="organic" selected>Organic Stochastic</option>
+                                    <option value="halftone">45° Halftone Dots</option>
+                                    <option value="slits">Horizontal Slits</option>
+                                </select>
+                            </div>
+                            <div class="ui-group">
+                                <div class="ui-label">Hole Size</div>
+                                <select id="export-knockout-size">
+                                    <option value="fine">Fine (~0.5mm / 6px)</option>
+                                    <option value="medium" selected>Medium (~0.75mm / 9px)</option>
+                                    <option value="coarse">Coarse (~1.1mm / 14px)</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="grid-2col" style="padding-top: 6px;">
+                            <div class="ui-group">
+                                <div class="ui-label">Void Ratio</div>
+                                <select id="export-knockout-void">
+                                    <option value="0.15">15% Void (Subtle)</option>
+                                    <option value="0.20" selected>20% Void (Balanced)</option>
+                                    <option value="0.25">25% Void (High Airflow)</option>
+                                    <option value="0.30">30% Void (Max Airflow)</option>
+                                </select>
+                            </div>
+                            <div class="ui-group">
+                                <div class="ui-label">Target Area</div>
+                                <select id="export-knockout-scope">
+                                    <option value="large_fills" selected>Large Fills Only</option>
+                                    <option value="all">Entire Design</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="ui-group" style="padding-top: 6px;">
+                            <label for="check-knockout-protect-text" class="ui-label" style="margin: 0; cursor: pointer; display: flex; align-items: center; justify-content: space-between;">
+                                <span>Protect Title & Subtitle</span>
+                                <input type="checkbox" id="check-knockout-protect-text" checked style="width: 15px; height: 15px; cursor: pointer; accent-color: #38bdf8;">
+                            </label>
+                        </div>
+                    </div>
+
                     <button class="btn-primary" id="btn-export" style="margin-top: 10px;">Export Snapshot (PNG)</button>
                 </section>
             </div>
@@ -880,6 +935,15 @@
         const exportTitleFont = document.getElementById('export-title-font');
         const checkPreviewTitle = document.getElementById('check-preview-title');
         const viewportTitleOverlay = document.getElementById('viewport-title-overlay');
+
+        // Breathability Knockout UI References
+        const checkExportBreathability = document.getElementById('check-export-breathability');
+        const exportBreathabilityDetails = document.getElementById('export-breathability-details');
+        const exportKnockoutPattern = document.getElementById('export-knockout-pattern');
+        const exportKnockoutSize = document.getElementById('export-knockout-size');
+        const exportKnockoutVoid = document.getElementById('export-knockout-void');
+        const exportKnockoutScope = document.getElementById('export-knockout-scope');
+        const checkKnockoutProtectText = document.getElementById('check-knockout-protect-text');
 
         // Mountain Metadata for Title & Subtitle Survey Info (aligned with VJ Scene 4)
         const MOUNTAIN_METADATA = {
@@ -3021,6 +3085,14 @@
             exportBgSelect.addEventListener('change', updateTitleUIAndPreview);
         }
 
+        if (checkExportBreathability) {
+            checkExportBreathability.addEventListener('change', () => {
+                if (exportBreathabilityDetails) {
+                    exportBreathabilityDetails.style.display = checkExportBreathability.checked ? 'block' : 'none';
+                }
+            });
+        }
+
         btnExport.addEventListener('click', () => {
             const isTransparent = exportBgSelect.value === 'transparent';
             const resChoice = exportResSelect ? exportResSelect.value : '4000';
@@ -3121,8 +3193,9 @@
                     // Draw the rendered 3D scene first
                     ctx.drawImage(exportCanvas, 0, 0);
 
-                    // Composite 2D title overlay if enabled
-                    if (checkExportTitle && checkExportTitle.checked) {
+                    // Helper function to render title & subtitle onto context
+                    function renderTitleOverlay() {
+                        if (!checkExportTitle || !checkExportTitle.checked) return;
                         const rawTitle = (inputExportTitle ? inputExportTitle.value : '').trim();
                         const info = getMountainInfo(currentRegion);
                         const titleText = (rawTitle || info.title).toUpperCase();
@@ -3132,40 +3205,28 @@
                         const subtitleText = includeSubtitle ? (rawSubtitle || info.subtitle).toUpperCase() : '';
 
                         if (titleText) {
-                            // Proportions calibrated to reference image:
-                            // Cap-height ~ 4.65% of canvas height => font size ~ 5.8% of exportH
                             const titleFontSize = Math.max(16, Math.round(exportH * 0.058));
                             const titleTracking = Math.round(titleFontSize * 0.38);
                             const titleY = Math.round(exportH * 0.078);
 
                             const fontChoice = exportTitleFont ? exportTitleFont.value : 'futura';
                             let fontFamily = "'Futura', 'Jost', 'Outfit', sans-serif";
-                            if (fontChoice === 'outfit') {
-                                fontFamily = "'Outfit', sans-serif";
-                            } else if (fontChoice === 'sans') {
-                                fontFamily = "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif";
-                            }
+                            if (fontChoice === 'outfit') fontFamily = "'Outfit', sans-serif";
+                            else if (fontChoice === 'sans') fontFamily = "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif";
 
                             const colorChoice = exportTitleColor ? exportTitleColor.value : 'auto';
                             let resolvedColor = '#000000';
-                            if (colorChoice === 'auto') {
-                                resolvedColor = isTransparent ? '#000000' : '#ffffff';
-                            } else if (colorChoice === 'black') {
-                                resolvedColor = '#000000';
-                            } else if (colorChoice === 'white') {
-                                resolvedColor = '#ffffff';
-                            } else if (colorChoice === 'accent') {
-                                resolvedColor = '#38bdf8';
-                            } else if (colorChoice === 'gold') {
-                                resolvedColor = '#f59e0b';
-                            }
+                            if (colorChoice === 'auto') resolvedColor = isTransparent ? '#000000' : '#ffffff';
+                            else if (colorChoice === 'black') resolvedColor = '#000000';
+                            else if (colorChoice === 'white') resolvedColor = '#ffffff';
+                            else if (colorChoice === 'accent') resolvedColor = '#38bdf8';
+                            else if (colorChoice === 'gold') resolvedColor = '#f59e0b';
 
                             ctx.save();
                             ctx.textAlign = 'center';
                             ctx.textBaseline = 'middle';
                             ctx.font = `600 ${titleFontSize}px ${fontFamily}`;
                             ctx.fillStyle = resolvedColor;
-
                             drawTrackedText(ctx, titleText, exportW / 2, titleY, titleTracking);
 
                             if (includeSubtitle && subtitleText) {
@@ -3173,7 +3234,6 @@
                                 const subTracking = Math.round(subFontSize * 0.28);
                                 const subY = titleY + Math.round(titleFontSize * 0.82);
                                 ctx.font = `500 ${subFontSize}px ${fontFamily}`;
-                                // Ensure subtitle is 100% opaque, matching title color with no semi-transparency
                                 ctx.fillStyle = resolvedColor;
                                 drawTrackedText(ctx, subtitleText, exportW / 2, subY, subTracking);
                             }
@@ -3181,9 +3241,15 @@
                         }
                     }
 
-                    // Strict alpha binarization pass:
-                    // Guarantees all pixels are strictly either 100% opaque (A = 255) or 100% transparent (A = 0).
-                    // No semi-transparent elements or edge pixels exist in the export.
+                    const isBreathable = checkExportBreathability && checkExportBreathability.checked;
+                    const protectText = checkKnockoutProtectText ? checkKnockoutProtectText.checked : true;
+
+                    // If not protecting text, draw title before knockout so holes punch through everything
+                    if (!isBreathable || !protectText) {
+                        renderTitleOverlay();
+                    }
+
+                    // Strict alpha binarization pass
                     const imgData = ctx.getImageData(0, 0, exportW, exportH);
                     const pixels = imgData.data;
                     const alphaThreshold = 50;
@@ -3192,7 +3258,6 @@
                         for (let i = 0; i < pixels.length; i += 4) {
                             const a = pixels[i + 3];
                             if (a >= alphaThreshold) {
-                                // Un-premultiply to preserve true vibrant RGB color, then make fully opaque
                                 const factor = 255.0 / a;
                                 pixels[i]     = Math.min(255, (pixels[i] * factor + 0.5) | 0);
                                 pixels[i + 1] = Math.min(255, (pixels[i + 1] * factor + 0.5) | 0);
@@ -3206,13 +3271,147 @@
                             }
                         }
                     } else {
-                        // Dark Scene: force all pixels completely opaque
                         for (let i = 0; i < pixels.length; i += 4) {
                             pixels[i + 3] = 255;
                         }
                     }
 
+                    // Breathability Knockout (Micro-Perforation for Garment Breathability)
+                    if (isBreathable) {
+                        const pattern = exportKnockoutPattern ? exportKnockoutPattern.value : 'organic';
+                        const sizeChoice = exportKnockoutSize ? exportKnockoutSize.value : 'medium';
+                        const voidRatio = exportKnockoutVoid ? parseFloat(exportKnockoutVoid.value) : 0.20;
+                        const scope = exportKnockoutScope ? exportKnockoutScope.value : 'large_fills';
+
+                        const resScale = exportW / 4000.0;
+                        let baseHoleD = 9.0;
+                        if (sizeChoice === 'fine') baseHoleD = 6.0;
+                        else if (sizeChoice === 'coarse') baseHoleD = 14.0;
+                        const holeD = Math.max(3.0, baseHoleD * resScale);
+                        const radiusSq = (holeD * 0.5) * (holeD * 0.5);
+                        const pitch = holeD * Math.sqrt(Math.PI / (4.0 * voidRatio));
+
+                        let isSolid = null;
+                        let checkR = 0;
+                        if (scope === 'large_fills') {
+                            isSolid = new Uint8Array(exportW * exportH);
+                            for (let idx = 0, p = 0; idx < isSolid.length; idx++, p += 4) {
+                                if (pixels[p + 3] === 255) isSolid[idx] = 1;
+                            }
+                            checkR = Math.max(4, Math.round(7 * resScale));
+                        }
+
+                        // PRNG for organic stochastic blue-noise dither
+                        function hash2(x, y) {
+                            let h = (Math.imul(x, 374761393) + Math.imul(y, 668265263)) ^ 0x5bf03635;
+                            h = Math.imul(h ^ (h >>> 13), 1274126177);
+                            return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+                        }
+
+                        const cos45 = 0.70710678, sin45 = 0.70710678;
+                        const jitterAmp = (pitch - holeD) * 0.70;
+
+                        const slitH = Math.max(3, Math.round(holeD * 0.65));
+                        const slitW = Math.max(8, Math.round(holeD * 2.5));
+                        const slitPitchY = Math.max(slitH + 2, Math.round(slitH / voidRatio));
+                        const slitPitchX = Math.max(slitW + 4, Math.round(slitW / 0.85));
+
+                        for (let y = 0; y < exportH; y++) {
+                            const rowOffset = y * exportW;
+                            for (let x = 0; x < exportW; x++) {
+                                const pIdx = (rowOffset + x) * 4;
+                                if (pixels[pIdx + 3] === 0) continue;
+
+                                if (scope === 'large_fills') {
+                                    if (x < checkR || x >= exportW - checkR || y < checkR || y >= exportH - checkR) continue;
+                                    const rPos = rowOffset + x;
+                                    if (!isSolid[rPos - checkR] || !isSolid[rPos + checkR] || !isSolid[(y - checkR) * exportW + x] || !isSolid[(y + checkR) * exportW + x]) {
+                                        continue;
+                                    }
+                                }
+
+                                let punchHole = false;
+                                if (pattern === 'halftone') {
+                                    const u = x * cos45 + y * sin45;
+                                    const v = -x * sin45 + y * cos45;
+                                    const du = u - Math.round(u / pitch) * pitch;
+                                    const dv = v - Math.round(v / pitch) * pitch;
+                                    if (du * du + dv * dv <= radiusSq) {
+                                        punchHole = true;
+                                    }
+                                } else if (pattern === 'slits') {
+                                    const rowIdx = Math.floor(y / slitPitchY);
+                                    const rOff = (rowIdx % 2 === 1) ? Math.floor(slitPitchX * 0.5) : 0;
+                                    const inSlitY = (y % slitPitchY) < slitH;
+                                    const inSlitX = ((x + rOff) % slitPitchX) < slitW;
+                                    if (inSlitY && inSlitX) {
+                                        punchHole = true;
+                                    }
+                                } else {
+                                    // organic stochastic
+                                    const cellX = Math.floor(x / pitch);
+                                    const cellY = Math.floor(y / pitch);
+                                    for (let dy = -1; dy <= 1; dy++) {
+                                        for (let dx = -1; dx <= 1; dx++) {
+                                            const cx = cellX + dx;
+                                            const cy = cellY + dy;
+                                            const jx = (hash2(cx, cy) - 0.5) * jitterAmp;
+                                            const jy = (hash2(cy, cx) - 0.5) * jitterAmp;
+                                            const centerX = (cx + 0.5) * pitch + jx;
+                                            const centerY = (cy + 0.5) * pitch + jy;
+                                            const distSq = (x - centerX) * (x - centerX) + (y - centerY) * (y - centerY);
+                                            if (distSq <= radiusSq) {
+                                                punchHole = true;
+                                                break;
+                                            }
+                                        }
+                                        if (punchHole) break;
+                                    }
+                                }
+
+                                if (punchHole) {
+                                    pixels[pIdx]     = 0;
+                                    pixels[pIdx + 1] = 0;
+                                    pixels[pIdx + 2] = 0;
+                                    pixels[pIdx + 3] = 0;
+                                }
+                            }
+                        }
+                    }
+
                     ctx.putImageData(imgData, 0, 0);
+
+                    // If text was protected from knockout, render title and subtitle on top now
+                    if (isBreathable && protectText) {
+                        renderTitleOverlay();
+                        // Final binary alpha sweep to keep text edges strictly binary
+                        const finalImgData = ctx.getImageData(0, 0, exportW, exportH);
+                        const finalPixels = finalImgData.data;
+                        if (isTransparent) {
+                            for (let i = 0; i < finalPixels.length; i += 4) {
+                                const a = finalPixels[i + 3];
+                                if (a > 0 && a < 255) {
+                                    if (a >= alphaThreshold) {
+                                        const f = 255.0 / a;
+                                        finalPixels[i]     = Math.min(255, (finalPixels[i] * f + 0.5) | 0);
+                                        finalPixels[i + 1] = Math.min(255, (finalPixels[i + 1] * f + 0.5) | 0);
+                                        finalPixels[i + 2] = Math.min(255, (finalPixels[i + 2] * f + 0.5) | 0);
+                                        finalPixels[i + 3] = 255;
+                                    } else {
+                                        finalPixels[i]     = 0;
+                                        finalPixels[i + 1] = 0;
+                                        finalPixels[i + 2] = 0;
+                                        finalPixels[i + 3] = 0;
+                                    }
+                                }
+                            }
+                        } else {
+                            for (let i = 0; i < finalPixels.length; i += 4) {
+                                finalPixels[i + 3] = 255;
+                            }
+                        }
+                        ctx.putImageData(finalImgData, 0, 0);
+                    }
 
                     const dataURL = outputCanvas.toDataURL('image/png');
 
@@ -3258,8 +3457,11 @@
                     const resSlug = `${exportW}x${exportH}`;
                     const taperSlug = (sliderTaper && parseInt(sliderTaper.value) > 0) ? `tap${sliderTaper.value}p_` : '';
                     const titleSlug = (checkExportTitle && checkExportTitle.checked) ? '_titled' : '';
+                    const breathSlug = (checkExportBreathability && checkExportBreathability.checked)
+                        ? `_breathable_${exportKnockoutPattern ? exportKnockoutPattern.value : 'organic'}_${Math.round((parseFloat(exportKnockoutVoid ? exportKnockoutVoid.value : '0.2') || 0.2) * 100)}p`
+                        : '';
 
-                    const filename = `${regionSlug}_${modeSlug}_${shadedSlug}${angleSlug}${taperSlug}${colorSlug}_ex${exSlug}_${linesSlug}_${lwSlug}_${resSlug}_${bgSlug}${titleSlug}.png`;
+                    const filename = `${regionSlug}_${modeSlug}_${shadedSlug}${angleSlug}${taperSlug}${colorSlug}_ex${exSlug}_${linesSlug}_${lwSlug}_${resSlug}_${bgSlug}${titleSlug}${breathSlug}.png`;
 
                     const link = document.createElement('a');
                     link.download = filename;
