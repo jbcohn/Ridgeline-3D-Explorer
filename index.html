@@ -6,7 +6,7 @@
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
-    <title>3D Ridgeline Landscape Explorer vers. 111</title>
+    <title>3D Ridgeline Landscape Explorer vers. 112</title>
     
     <!-- Google Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -542,7 +542,7 @@
             </div>
 
             <header id="panel-header">
-                <h1>RIDGELINE 3D <span class="app-version">vers. 111</span></h1>
+                <h1>RIDGELINE 3D <span class="app-version">vers. 112</span></h1>
                 <button id="btn-close-panel" title="Close Panel">✕</button>
             </header>
 
@@ -1626,8 +1626,16 @@
             const rows = data.rows;
             const cols = data.cols;
 
-            const width = 120; // fixed 3D width span (E-W)
-            const depth = 120; // fixed 3D depth span (N-S)
+            const baseSpan = 120;
+            const aspect = (data.aspect_ratio) ? data.aspect_ratio : (data.depth_m && data.width_m ? (data.width_m / data.depth_m) : (cols / rows));
+            let width, depth;
+            if (aspect <= 1.0) {
+                depth = baseSpan;
+                width = baseSpan * aspect;
+            } else {
+                width = baseSpan;
+                depth = baseSpan / aspect;
+            }
             const realWidthM = data.width_m > 0 ? data.width_m : 50000.0;
             let minElev = (data.min_elev !== undefined) ? data.min_elev : 0.0;
             let maxElev = (data.max_elev !== undefined) ? data.max_elev : 1000.0;
