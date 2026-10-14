@@ -6,7 +6,7 @@
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
-    <title>3D Ridgeline Landscape Explorer vers. 106</title>
+    <title>3D Ridgeline Landscape Explorer vers. 107</title>
     
     <!-- Google Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -542,7 +542,7 @@
             </div>
 
             <header id="panel-header">
-                <h1>RIDGELINE 3D <span class="app-version">vers. 106</span></h1>
+                <h1>RIDGELINE 3D <span class="app-version">vers. 107</span></h1>
                 <button id="btn-close-panel" title="Close Panel">✕</button>
             </header>
 
@@ -1085,10 +1085,10 @@
                     subEl.style.fontFamily = fontFamily;
 
                     const colorChoice = exportTitleColor ? exportTitleColor.value : 'auto';
-                    let subColor = 'rgba(255, 255, 255, 0.75)';
-                    if (colorChoice === 'black') subColor = 'rgba(15, 23, 42, 0.9)';
-                    else if (colorChoice === 'accent') subColor = 'rgba(56, 189, 248, 0.85)';
-                    else if (colorChoice === 'gold') subColor = 'rgba(245, 158, 11, 0.85)';
+                    let subColor = '#ffffff';
+                    if (colorChoice === 'black') subColor = '#0f172a';
+                    else if (colorChoice === 'accent') subColor = '#38bdf8';
+                    else if (colorChoice === 'gold') subColor = '#f59e0b';
                     subEl.style.color = subColor;
                 } else {
                     subEl.style.display = 'none';
@@ -1763,8 +1763,8 @@
                             } else {
                                 vec3 strokeColor = (uUseVertexLineColor > 0.5) ? vColor : uLineColor;
                                 if (uTransparentBg > 0.5) {
-                                    if (lineAlpha < 0.02) discard;
-                                    gl_FragColor = vec4(strokeColor, lineAlpha);
+                                    if (lineAlpha < 0.35) discard;
+                                    gl_FragColor = vec4(strokeColor, 1.0);
                                 } else {
                                     vec3 finalCol = mix(uBgColor, strokeColor, lineAlpha);
                                     gl_FragColor = vec4(finalCol, 1.0);
@@ -3112,7 +3112,14 @@
                     // Render ultra high-res snapshot frame
                     exportRenderer.render(scene, exportCamera);
 
-                    let finalCanvas = exportCanvas;
+                    // Create dedicated 2D output canvas for compositing and strict alpha binarization
+                    const outputCanvas = document.createElement('canvas');
+                    outputCanvas.width = exportW;
+                    outputCanvas.height = exportH;
+                    const ctx = outputCanvas.getContext('2d', { willReadFrequently: true });
+
+                    // Draw the rendered 3D scene first
+                    ctx.drawImage(exportCanvas, 0, 0);
 
                     // Composite 2D title overlay if enabled
                     if (checkExportTitle && checkExportTitle.checked) {
@@ -3125,14 +3132,6 @@
                         const subtitleText = includeSubtitle ? (rawSubtitle || info.subtitle).toUpperCase() : '';
 
                         if (titleText) {
-                            const compositeCanvas = document.createElement('canvas');
-                            compositeCanvas.width = exportW;
-                            compositeCanvas.height = exportH;
-                            const ctx = compositeCanvas.getContext('2d');
-
-                            // Draw the rendered 3D scene first
-                            ctx.drawImage(exportCanvas, 0, 0);
-
                             // Proportions calibrated to reference image:
                             // Cap-height ~ 4.65% of canvas height => font size ~ 5.8% of exportH
                             const titleFontSize = Math.max(16, Math.round(exportH * 0.058));
@@ -3174,20 +3173,48 @@
                                 const subTracking = Math.round(subFontSize * 0.28);
                                 const subY = titleY + Math.round(titleFontSize * 0.82);
                                 ctx.font = `500 ${subFontSize}px ${fontFamily}`;
-                                if (colorChoice === 'auto' || colorChoice === 'black' || colorChoice === 'white') {
-                                    ctx.fillStyle = (resolvedColor === '#000000') ? 'rgba(0, 0, 0, 0.75)' : 'rgba(255, 255, 255, 0.75)';
-                                } else {
-                                    ctx.fillStyle = resolvedColor;
-                                }
+                                // Ensure subtitle is 100% opaque, matching title color with no semi-transparency
+                                ctx.fillStyle = resolvedColor;
                                 drawTrackedText(ctx, subtitleText, exportW / 2, subY, subTracking);
                             }
                             ctx.restore();
-
-                            finalCanvas = compositeCanvas;
                         }
                     }
 
-                    const dataURL = finalCanvas.toDataURL('image/png');
+                    // Strict alpha binarization pass:
+                    // Guarantees all pixels are strictly either 100% opaque (A = 255) or 100% transparent (A = 0).
+                    // No semi-transparent elements or edge pixels exist in the export.
+                    const imgData = ctx.getImageData(0, 0, exportW, exportH);
+                    const pixels = imgData.data;
+                    const alphaThreshold = 50;
+
+                    if (isTransparent) {
+                        for (let i = 0; i < pixels.length; i += 4) {
+                            const a = pixels[i + 3];
+                            if (a >= alphaThreshold) {
+                                // Un-premultiply to preserve true vibrant RGB color, then make fully opaque
+                                const factor = 255.0 / a;
+                                pixels[i]     = Math.min(255, (pixels[i] * factor + 0.5) | 0);
+                                pixels[i + 1] = Math.min(255, (pixels[i + 1] * factor + 0.5) | 0);
+                                pixels[i + 2] = Math.min(255, (pixels[i + 2] * factor + 0.5) | 0);
+                                pixels[i + 3] = 255;
+                            } else {
+                                pixels[i]     = 0;
+                                pixels[i + 1] = 0;
+                                pixels[i + 2] = 0;
+                                pixels[i + 3] = 0;
+                            }
+                        }
+                    } else {
+                        // Dark Scene: force all pixels completely opaque
+                        for (let i = 0; i < pixels.length; i += 4) {
+                            pixels[i + 3] = 255;
+                        }
+                    }
+
+                    ctx.putImageData(imgData, 0, 0);
+
+                    const dataURL = outputCanvas.toDataURL('image/png');
 
                     // Restore live viewport state and line widths
                     if (isTransparent) {
