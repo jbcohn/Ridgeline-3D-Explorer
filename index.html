@@ -6,7 +6,7 @@
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
-    <title>3D Ridgeline Landscape Explorer vers. 110</title>
+    <title>3D Ridgeline Landscape Explorer vers. 111</title>
     
     <!-- Google Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -542,7 +542,7 @@
             </div>
 
             <header id="panel-header">
-                <h1>RIDGELINE 3D <span class="app-version">vers. 110</span></h1>
+                <h1>RIDGELINE 3D <span class="app-version">vers. 111</span></h1>
                 <button id="btn-close-panel" title="Close Panel">✕</button>
             </header>
 
@@ -1611,6 +1611,7 @@
 
             const data = DEM_DATA[currentRegion];
             if (!data) return;
+            const dem = data;
 
             const nLines = parseInt(sliderLines.value);
             const exaggeration = parseFloat(sliderExaggeration.value);
