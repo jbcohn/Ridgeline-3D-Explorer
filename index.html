@@ -6,7 +6,7 @@
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
-    <title>3D Ridgeline Landscape Explorer vers. 108</title>
+    <title>3D Ridgeline Landscape Explorer vers. 109</title>
     
     <!-- Google Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -542,7 +542,7 @@
             </div>
 
             <header id="panel-header">
-                <h1>RIDGELINE 3D <span class="app-version">vers. 108</span></h1>
+                <h1>RIDGELINE 3D <span class="app-version">vers. 109</span></h1>
                 <button id="btn-close-panel" title="Close Panel">✕</button>
             </header>
 
@@ -648,6 +648,21 @@
                         <div style="display: flex; gap: 6px; align-items: center;">
                             <input type="range" id="slider-elev-min" min="0" max="95" step="1" value="0" style="flex: 1;" title="Min Elevation Threshold">
                             <input type="range" id="slider-elev-max" min="5" max="100" step="1" value="100" style="flex: 1;" title="Max Elevation Threshold">
+                        </div>
+                        <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 6px;">
+                            <label for="check-transparent-below-min" class="ui-label" style="margin: 0; cursor: pointer; display: flex; align-items: center; gap: 6px;" title="Make all fills below min elevation threshold transparent instead of black for a smooth fade into the background">
+                                <input type="checkbox" id="check-transparent-below-min" checked style="width: 14px; height: 14px; cursor: pointer; accent-color: #38bdf8;">
+                                <span>Transparent Below Min Elev</span>
+                            </label>
+                            <div style="display: flex; align-items: center; gap: 4px;">
+                                <span class="ui-label" style="margin: 0; font-size: 10px;">Fade:</span>
+                                <select id="select-elev-fade" style="background: #1e293b; color: #e2e8f0; border: 1px solid rgba(255,255,255,0.15); border-radius: 4px; padding: 2px 4px; font-size: 10px;">
+                                    <option value="0.0">Hard Cut</option>
+                                    <option value="0.03" selected>Soft (3%)</option>
+                                    <option value="0.06">Smooth (6%)</option>
+                                    <option value="0.10">Wide (10%)</option>
+                                </select>
+                            </div>
                         </div>
                         <div id="custom-hue-controls" style="display: none; margin-top: 4px;">
                             <div class="grid-2col">
@@ -833,8 +848,9 @@
                             <div class="ui-group">
                                 <div class="ui-label">Target Area</div>
                                 <select id="export-knockout-scope">
-                                    <option value="large_fills" selected>Large Fills Only</option>
-                                    <option value="all">Entire Design</option>
+                                    <option value="fills_only" selected>All Fills (Preserve Mesh)</option>
+                                    <option value="large_fills">Large Fills Only (Preserve Mesh)</option>
+                                    <option value="all">Entire Design (Including Mesh)</option>
                                 </select>
                             </div>
                         </div>
@@ -914,6 +930,8 @@
         const sliderElevMin = document.getElementById('slider-elev-min');
         const sliderElevMax = document.getElementById('slider-elev-max');
         const valElevRange = document.getElementById('val-elev-range');
+        const checkTransparentBelowMin = document.getElementById('check-transparent-below-min');
+        const selectElevFade = document.getElementById('select-elev-fade');
         const customHueControls = document.getElementById('custom-hue-controls');
         const sliderHueStart = document.getElementById('slider-hue-start');
         const valHueStart = document.getElementById('val-hue-start');
@@ -1764,6 +1782,10 @@
             // Helper: Create Barycentric Wireframe Shader Material
             function createBarycentricMaterial(isShaded, shadingStyle, sunDir, lw) {
                 const shadingMode = (isShaded && shadingStyle === 'smooth') ? 1.0 : ((isShaded && shadingStyle === 'faceted') ? 2.0 : 0.0);
+                const elevMinVal = sliderElevMin ? (parseFloat(sliderElevMin.value) || 0) / 100.0 : 0.0;
+                const elevFadeVal = selectElevFade ? (parseFloat(selectElevFade.value) || 0.03) : 0.03;
+                const isTransBelowMin = checkTransparentBelowMin ? checkTransparentBelowMin.checked : true;
+
                 return new THREE.ShaderMaterial({
                     uniforms: {
                         uLineWidth: { value: lw },
@@ -1774,18 +1796,25 @@
                         uBgColor: { value: new THREE.Color(0x0a0a0c) },
                         uTransparentBg: { value: 0.0 },
                         uShadingMode: { value: shadingMode },
-                        uLightDir: { value: sunDir.clone() }
+                        uLightDir: { value: sunDir.clone() },
+                        uElevMin: { value: elevMinVal },
+                        uElevFade: { value: elevFadeVal },
+                        uTransparentBelowMin: { value: isTransBelowMin ? 1.0 : 0.0 },
+                        uMeshMaskOnly: { value: 0.0 }
                     },
                     vertexShader: `
                         attribute vec3 aBarycentric;
                         attribute vec3 color;
+                        attribute float aHeightRatio;
                         varying vec3 vColor;
                         varying vec3 vBarycentric;
                         varying vec3 vNormal;
+                        varying float vHeightRatio;
 
                         void main() {
                             vColor = color;
                             vBarycentric = aBarycentric;
+                            vHeightRatio = aHeightRatio;
                             vNormal = normalize(normalMatrix * normal);
                             gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
                         }
@@ -1794,6 +1823,7 @@
                         varying vec3 vColor;
                         varying vec3 vBarycentric;
                         varying vec3 vNormal;
+                        varying float vHeightRatio;
 
                         uniform float uLineWidth;
                         uniform vec3 uLineColor;
@@ -1805,25 +1835,56 @@
                         uniform float uShadingMode;
                         uniform vec3 uLightDir;
 
-                        void main() {
-                            vec3 baseColor = vColor;
-                            if (uIsShaded > 0.5) {
-                                if (uShadingMode == 1.0 || uShadingMode == 2.0) {
-                                    vec3 N = normalize(vNormal);
-                                    float diff = max(0.0, dot(N, uLightDir));
-                                    baseColor *= (0.70 + 0.30 * diff);
-                                }
-                            }
+                        uniform float uElevMin;
+                        uniform float uElevFade;
+                        uniform float uTransparentBelowMin;
+                        uniform float uMeshMaskOnly;
 
+                        void main() {
                             // Compute screen-space anti-aliased wireframe width
                             vec3 d = fwidth(vBarycentric);
                             vec3 a3 = smoothstep(vec3(0.0), d * uLineWidth, vBarycentric);
                             float edgeFactor = min(min(a3.x, a3.y), a3.z);
                             float lineAlpha = clamp((1.0 - edgeFactor) * uLineOpacity, 0.0, 1.0);
 
+                            // MESH MASK PASS: Used to isolate mesh lines for 100% protection during breathability knockout
+                            if (uMeshMaskOnly > 0.5) {
+                                if (lineAlpha < 0.15) discard;
+                                gl_FragColor = vec4(1.0, 1.0, 1.0, 1.0);
+                                return;
+                            }
+
+                            // Elevation-based fill transparency (fade to transparent instead of black below min elevation)
+                            float fillAlpha = 1.0;
+                            if (uTransparentBelowMin > 0.5) {
+                                if (vHeightRatio < uElevMin) {
+                                    fillAlpha = 0.0;
+                                } else if (uElevFade > 0.001 && vHeightRatio < (uElevMin + uElevFade)) {
+                                    fillAlpha = smoothstep(uElevMin, uElevMin + uElevFade, vHeightRatio);
+                                }
+                            }
+
                             if (uIsShaded > 0.5) {
-                                vec3 finalCol = mix(baseColor, uLineColor, lineAlpha);
-                                gl_FragColor = vec4(finalCol, 1.0);
+                                vec3 baseColor = vColor;
+                                if (uShadingMode == 1.0 || uShadingMode == 2.0) {
+                                    vec3 N = normalize(vNormal);
+                                    float diff = max(0.0, dot(N, uLightDir));
+                                    baseColor *= (0.70 + 0.30 * diff);
+                                }
+
+                                float totalAlpha = max(lineAlpha, fillAlpha);
+                                if (totalAlpha < 0.01) {
+                                    discard;
+                                }
+
+                                vec3 finalCol;
+                                if (lineAlpha > 0.001) {
+                                    finalCol = mix(baseColor, uLineColor, lineAlpha / max(totalAlpha, 0.001));
+                                } else {
+                                    finalCol = baseColor;
+                                }
+
+                                gl_FragColor = vec4(finalCol, totalAlpha);
                             } else {
                                 vec3 strokeColor = (uUseVertexLineColor > 0.5) ? vColor : uLineColor;
                                 if (uTransparentBg > 0.5) {
@@ -1838,6 +1899,7 @@
                     `,
                     side: THREE.DoubleSide,
                     transparent: true,
+                    depthWrite: true,
                     polygonOffset: true,
                     polygonOffsetFactor: -1,
                     polygonOffsetUnits: -1
@@ -1849,6 +1911,12 @@
                 const nonIndexedPos = [];
                 const nonIndexedCol = [];
                 const barycentric = [];
+                const heightRatios = [];
+
+                function getPtHeightRatio(idx, pt) {
+                    const elevVal = rawPoints ? sampleDEM(grid, rows, cols, rawPoints[idx*2], rawPoints[idx*2+1]) : (pt.y / heightScale + minElev);
+                    return Math.min(1.0, Math.max(0.0, (elevVal - minElev) / spanElev));
+                }
 
                 for (let i = 0; i < indices.length; i += 3) {
                     const i0 = indices[i], i1 = indices[i + 1], i2 = indices[i + 2];
@@ -1857,6 +1925,11 @@
                     const p2 = new THREE.Vector3(positions[i2*3], positions[i2*3+1], positions[i2*3+2]);
 
                     nonIndexedPos.push(p0.x, p0.y, p0.z, p1.x, p1.y, p1.z, p2.x, p2.y, p2.z);
+
+                    const hr0 = getPtHeightRatio(i0, p0);
+                    const hr1 = getPtHeightRatio(i1, p1);
+                    const hr2 = getPtHeightRatio(i2, p2);
+                    heightRatios.push(hr0, hr1, hr2);
 
                     if (isShaded && shadingStyle === 'hsl_relief') {
                         const cb = new THREE.Vector3().subVectors(p2, p1);
@@ -1889,6 +1962,7 @@
                 geo.setAttribute('position', new THREE.Float32BufferAttribute(nonIndexedPos, 3));
                 geo.setAttribute('color', new THREE.Float32BufferAttribute(nonIndexedCol, 3));
                 geo.setAttribute('aBarycentric', new THREE.Float32BufferAttribute(barycentric, 3));
+                geo.setAttribute('aHeightRatio', new THREE.Float32BufferAttribute(heightRatios, 1));
                 geo.computeVertexNormals();
 
                 const mat = createBarycentricMaterial(isShaded, shadingStyle, sunDir, lw);
@@ -3030,6 +3104,18 @@
             updateRidgelineMesh();
         });
 
+        if (checkTransparentBelowMin) {
+            checkTransparentBelowMin.addEventListener('change', () => {
+                updateRidgelineMesh();
+            });
+        }
+
+        if (selectElevFade) {
+            selectElevFade.addEventListener('change', () => {
+                updateRidgelineMesh();
+            });
+        }
+
         sliderHueStart.addEventListener('input', (e) => {
             valHueStart.textContent = parseFloat(e.target.value).toFixed(2);
             updateRidgelineMesh();
@@ -3281,7 +3367,61 @@
                         const pattern = exportKnockoutPattern ? exportKnockoutPattern.value : 'organic';
                         const sizeChoice = exportKnockoutSize ? exportKnockoutSize.value : 'medium';
                         const voidRatio = exportKnockoutVoid ? parseFloat(exportKnockoutVoid.value) : 0.20;
-                        const scope = exportKnockoutScope ? exportKnockoutScope.value : 'large_fills';
+                        const scope = exportKnockoutScope ? exportKnockoutScope.value : 'fills_only';
+
+                        // Generate Mesh Protection Mask to guarantee mesh lines are NEVER perforated
+                        let isMeshPixel = null;
+                        if (scope !== 'all') {
+                            isMeshPixel = new Uint8Array(exportW * exportH);
+                            const savedMaskUniforms = [];
+                            const savedVisibles = [];
+                            ridgelineGroup.traverse((child) => {
+                                if (child.isMesh) {
+                                    if (child.material && child.material.uniforms && child.material.uniforms.uMeshMaskOnly) {
+                                        savedMaskUniforms.push(child.material.uniforms.uMeshMaskOnly);
+                                        child.material.uniforms.uMeshMaskOnly.value = 1.0;
+                                    } else if (child.isOccluder) {
+                                        savedVisibles.push({ obj: child, val: child.visible });
+                                        child.visible = false;
+                                    }
+                                }
+                            });
+
+                            const prevClearCol = exportRenderer.getClearColor(new THREE.Color());
+                            const prevClearAlpha = exportRenderer.getClearAlpha();
+                            exportRenderer.setClearColor(0x000000, 0.0);
+                            const prevSceneBg = scene.background;
+                            scene.background = null;
+
+                            exportRenderer.render(scene, exportCamera);
+
+                            const maskCanvas = document.createElement('canvas');
+                            maskCanvas.width = exportW;
+                            maskCanvas.height = exportH;
+                            const maskCtx = maskCanvas.getContext('2d', { willReadFrequently: true });
+                            maskCtx.drawImage(exportCanvas, 0, 0);
+                            const maskData = maskCtx.getImageData(0, 0, exportW, exportH).data;
+
+                            // 1px dilation to protect anti-aliased line fringes
+                            for (let y = 0; y < exportH; y++) {
+                                const rOff = y * exportW;
+                                for (let x = 0; x < exportW; x++) {
+                                    if (maskData[(rOff + x) * 4 + 3] > 30) {
+                                        isMeshPixel[rOff + x] = 1;
+                                        if (x > 0) isMeshPixel[rOff + x - 1] = 1;
+                                        if (x < exportW - 1) isMeshPixel[rOff + x + 1] = 1;
+                                        if (y > 0) isMeshPixel[rOff - exportW + x] = 1;
+                                        if (y < exportH - 1) isMeshPixel[rOff + exportW + x] = 1;
+                                    }
+                                }
+                            }
+
+                            // Restore uniforms and visibility
+                            savedMaskUniforms.forEach(u => u.value = 0.0);
+                            savedVisibles.forEach(item => item.obj.visible = item.val);
+                            exportRenderer.setClearColor(prevClearCol, prevClearAlpha);
+                            scene.background = prevSceneBg;
+                        }
 
                         const resScale = exportW / 4000.0;
                         let baseHoleD = 9.0;
@@ -3321,6 +3461,9 @@
                             for (let x = 0; x < exportW; x++) {
                                 const pIdx = (rowOffset + x) * 4;
                                 if (pixels[pIdx + 3] === 0) continue;
+
+                                // Preserve mesh lines: NEVER punch holes through the mesh
+                                if (isMeshPixel && isMeshPixel[rowOffset + x]) continue;
 
                                 if (scope === 'large_fills') {
                                     if (x < checkR || x >= exportW - checkR || y < checkR || y >= exportH - checkR) continue;
