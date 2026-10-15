@@ -6,7 +6,7 @@
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
-    <title>3D Ridgeline Landscape Explorer vers. 112</title>
+    <title>3D Ridgeline Landscape Explorer vers. 113</title>
     
     <!-- Google Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -542,7 +542,7 @@
             </div>
 
             <header id="panel-header">
-                <h1>RIDGELINE 3D <span class="app-version">vers. 112</span></h1>
+                <h1>RIDGELINE 3D <span class="app-version">vers. 113</span></h1>
                 <button id="btn-close-panel" title="Close Panel">✕</button>
             </header>
 
@@ -1560,7 +1560,9 @@
             const dx = bx - ax, dy = by - ay;
             const ex = cx - ax, ey = cy - ay;
             const bl = dx * dx + dy * dy, cl = ex * ex + ey * ey;
-            const d = 0.5 / (dx * ey - dy * ex);
+            const denom = dx * ey - dy * ex;
+            if (Math.abs(denom) < 1e-12) return { x: (ax + bx + cx) / 3, y: (ay + by + cy) / 3 };
+            const d = 0.5 / denom;
             const x = ax + (ey * bl - dy * cl) * d, y = ay + (dx * cl - ex * bl) * d;
             return { x, y };
         }
@@ -2188,6 +2190,7 @@
             if (renderStyle === 'fe_gradual') {
                 // --- Quality Adaptive Delaunay TIN Mesh (Chew's Second Algorithm + Spatial Poisson Rejection) ---
                 const baseRes = Math.max(20, Math.floor(nLines * 0.55));
+                const maxAllowedEdge = Math.max(0.035, 3.2 / baseRes);
                 const eps = 0.01;
 
                 function getSlope(u, v) {
@@ -2298,6 +2301,9 @@
                         const c = Math.hypot(x0 - x2, y0 - y2);
                         const minEdge = Math.min(a, b, c);
 
+                        // In masked domains, do not refine bad bridging triangles that span across concave borders
+                        if (dem.hasBorderMask && Math.max(a, b, c) > maxAllowedEdge) continue;
+
                         const cc = fdCircumcenter(x0, y0, x1, y1, x2, y2);
                         const rad = Math.hypot(cc.x - x0, cc.y - y0);
 
@@ -2314,6 +2320,14 @@
                 const neighbors = Array.from({ length: numPts }, () => []);
                 for (let i = 0; i < delaunay.triangles.length; i += 3) {
                     const i0 = delaunay.triangles[i], i1 = delaunay.triangles[i + 1], i2 = delaunay.triangles[i + 2];
+                    if (dem.hasBorderMask) {
+                        const x0 = rawPoints[2 * i0], y0 = rawPoints[2 * i0 + 1];
+                        const x1 = rawPoints[2 * i1], y1 = rawPoints[2 * i1 + 1];
+                        const x2 = rawPoints[2 * i2], y2 = rawPoints[2 * i2 + 1];
+                        if (Math.hypot(x1 - x0, y1 - y0) > maxAllowedEdge ||
+                            Math.hypot(x2 - x1, y2 - y1) > maxAllowedEdge ||
+                            Math.hypot(x0 - x2, y0 - y2) > maxAllowedEdge) continue;
+                    }
                     neighbors[i0].push(i1, i2);
                     neighbors[i1].push(i0, i2);
                     neighbors[i2].push(i0, i1);
@@ -2330,8 +2344,13 @@
                         sumY += rawPoints[2 * nbrs[j] + 1];
                     }
                     const cx = sumX / nbrs.length, cy = sumY / nbrs.length;
-                    rawPoints[2 * i] = px * 0.5 + cx * 0.5;
-                    rawPoints[2 * i + 1] = py * 0.5 + cy * 0.5;
+                    const nx = px * 0.5 + cx * 0.5;
+                    const ny = py * 0.5 + cy * 0.5;
+                    // Preserve masked domain boundary: never pull boundary points into null terrain
+                    if (!dem.hasBorderMask || sampleDEM(grid, rows, cols, nx, ny) !== null) {
+                        rawPoints[2 * i] = nx;
+                        rawPoints[2 * i + 1] = ny;
+                    }
                 }
 
                 // Final Delaunay triangulation
@@ -2363,9 +2382,26 @@
                         const u0 = rawPoints[2 * i0], v0 = rawPoints[2 * i0 + 1];
                         const u1 = rawPoints[2 * i1], v1 = rawPoints[2 * i1 + 1];
                         const u2 = rawPoints[2 * i2], v2 = rawPoints[2 * i2 + 1];
+
+                        // 1. All 3 vertices must lie on valid terrain
                         if (sampleDEM(grid, rows, cols, u0, v0) === null ||
                             sampleDEM(grid, rows, cols, u1, v1) === null ||
                             sampleDEM(grid, rows, cols, u2, v2) === null) continue;
+
+                        // 2. Reject spanning chords across concave borders (Nevada, coastal bays)
+                        const d01 = Math.hypot(u1 - u0, v1 - v0);
+                        const d12 = Math.hypot(u2 - u1, v2 - v1);
+                        const d20 = Math.hypot(u0 - u2, v0 - v2);
+                        if (Math.max(d01, d12, d20) > maxAllowedEdge) continue;
+
+                        // 3. Triangle centroid must lie on valid terrain
+                        const uc = (u0 + u1 + u2) / 3, vc = (v0 + v1 + v2) / 3;
+                        if (sampleDEM(grid, rows, cols, uc, vc) === null) continue;
+
+                        // 4. Edge midpoints must lie on valid terrain
+                        if (sampleDEM(grid, rows, cols, (u0 + u1) / 2, (v0 + v1) / 2) === null ||
+                            sampleDEM(grid, rows, cols, (u1 + u2) / 2, (v1 + v2) / 2) === null ||
+                            sampleDEM(grid, rows, cols, (u2 + u0) / 2, (v2 + v0) / 2) === null) continue;
                     }
                     indices.push(i0, i1, i2);
                 }
